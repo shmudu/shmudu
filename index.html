@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Shmudu</title>
+  <meta name="description" content="Check in on each other with Bubu and Dudu.">
+  <meta name="theme-color" content="#FFF6F2">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Shmudu">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icons/icon-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@700;800&family=Nunito:wght@600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/app.css">
+  <script type="importmap">
+    {
+      "imports": {
+        "firebase/app": "https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js",
+        "firebase/auth": "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js",
+        "firebase/firestore": "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js"
+      }
+    }
+  </script>
+  <script type="module" src="/js/app.js"></script>
+</head>
+<body>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <div id="loading" class="screen center">
+    <div class="loading-bears" id="loading-art"></div>
+  </div>
+
+  <!-- 1. Who are you? -->
+  <section id="onboard" class="screen padded" hidden>
+    <h1>Hi! Who are you?</h1>
+    <p class="muted">Pick your character. Your partner will be the other one.</p>
+    <div class="pick-row" role="group" aria-label="Character">
+      <button class="pick" data-action="ob-character" data-arg="bubu" aria-pressed="false">
+        <span class="pick-art" data-art="bubu"></span>
+        <span class="pick-name">Bubu</span>
+        <span class="pick-sub">brown bear</span>
+      </button>
+      <button class="pick" data-action="ob-character" data-arg="dudu" aria-pressed="false">
+        <span class="pick-art" data-art="dudu"></span>
+        <span class="pick-name">Dudu</span>
+        <span class="pick-sub">white panda</span>
+      </button>
+    </div>
+    <label class="field">
+      <span>Your name in the app</span>
+      <input id="ob-name" maxlength="20" autocomplete="nickname" placeholder="Bubu">
+    </label>
+    <button class="btn primary" data-action="ob-continue">Continue</button>
+  </section>
+
+  <!-- 2. Pair up -->
+  <section id="pair" class="screen padded" hidden>
+    <div id="pair-art" class="pair-art"></div>
+    <div id="pair-start">
+      <h1>Pair with your partner</h1>
+      <p class="muted">One of you gets a code, the other types it in.</p>
+      <button class="btn primary" data-action="pair-create">Get a code</button>
+      <div class="or"><span>or</span></div>
+      <label class="field">
+        <span>Partner’s code</span>
+        <input id="pair-code" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="one-time-code" placeholder="123456">
+      </label>
+      <button class="btn" data-action="pair-join">Join</button>
+    </div>
+    <div id="pair-waiting" hidden>
+      <h1>Your code</h1>
+      <p class="code" id="pair-code-show"></p>
+      <p class="muted">Ask your partner to open Shmudu and enter this code. This screen will change as soon as they do.</p>
+    </div>
+    <p class="muted small" id="pair-demo-note" hidden>Demo mode: a pretend partner will join in a few seconds.</p>
+  </section>
+
+  <!-- 3. The app -->
+  <div id="main" class="screen app" hidden>
+    <div class="content">
+
+      <section data-tab="home">
+        <header class="top">
+          <div>
+            <span class="eyebrow">Shmudu</span>
+            <h1 id="home-title"></h1>
+          </div>
+          <span class="pill ok" id="demo-pill" hidden>Demo</span>
+        </header>
+
+        <div class="scene" id="scene">
+          <div class="ground"></div>
+          <div class="char me"><div class="bob"><div class="inner" id="char-me"></div></div></div>
+          <div class="char partner"><div class="bob"><div class="inner" id="char-partner"></div></div></div>
+          <div class="fx" id="fx" aria-hidden="true"></div>
+        </div>
+
+        <div class="cards">
+          <article class="card" id="card-me"></article>
+          <article class="card" id="card-partner"></article>
+        </div>
+
+        <div class="actions">
+          <button class="action" data-action="send" data-arg="hug" style="--tile:#FFD3DD">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM15 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM3 20c0-4 3-6.5 6-6.5 1.3 0 2.3.4 3 1 .7-.6 1.7-1 3-1 3 0 6 2.5 6 6.5"/></svg>
+            Hug
+          </button>
+          <button class="action" data-action="send" data-arg="kiss" style="--tile:#FFE1EA">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12c3-4 6-5 9-3 3-2 6-1 9 3-3 4-6 5-9 5s-6-1-9-5zM3 12h18"/></svg>
+            Kiss
+          </button>
+          <button class="action" data-action="send" data-arg="poke" style="--tile:#FFE7C7">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 12V5a1.5 1.5 0 0 1 3 0v6M12 10.5a1.5 1.5 0 0 1 3 0V12M15 11.5a1.5 1.5 0 0 1 3 0V15a6 6 0 0 1-6 6h-.5a5 5 0 0 1-4.2-2.3L5 15.5a1.5 1.5 0 0 1 2.5-1.6L9 16"/></svg>
+            Poke
+          </button>
+          <button class="action" data-action="send" data-arg="snack" style="--tile:#F3E3D2">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 16h18M4 16c0-4.5 3.6-8 8-8s8 3.5 8 8M9 16c1-2.5 1-5 0-6.5M12 16V8M15 16c-1-2.5-1-5 0-6.5"/></svg>
+            Snack
+          </button>
+        </div>
+
+        <button class="btn primary think" data-action="send" data-arg="think">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path class="fill" d="M12 21s-8-5-8-11a4.5 4.5 0 0 1 8-2.8A4.5 4.5 0 0 1 20 10c0 6-8 11-8 11z"/></svg>
+          <span id="think-label">Thinking of you</span>
+        </button>
+
+        <div class="banner" id="push-banner" hidden>
+          <p id="push-banner-text"></p>
+          <div class="banner-actions">
+            <button class="btn small primary" data-action="push-enable" id="push-banner-btn">Turn on</button>
+            <button class="btn small ghost" data-action="push-dismiss">Not now</button>
+          </div>
+        </div>
+      </section>
+
+      <section data-tab="status" hidden>
+        <h1 id="status-title"></h1>
+        <div class="mood-grid" id="mood-grid" role="group" aria-label="Mood"></div>
+        <h2>What are you up to?</h2>
+        <div class="chips" id="activity-chips" role="group" aria-label="Activity"></div>
+        <label class="field">
+          <span>Little note</span>
+          <input id="status-note" maxlength="60" placeholder="omw home, boba?">
+        </label>
+        <button class="btn primary" data-action="status-save">Share my status</button>
+      </section>
+
+      <section data-tab="moments" hidden>
+        <h1>Moments</h1>
+        <div class="tallies" id="tallies"></div>
+        <ul class="moments" id="moments-list"></ul>
+      </section>
+
+      <section data-tab="me" hidden>
+        <h1>You</h1>
+        <label class="field">
+          <span>Your name</span>
+          <input id="me-name" maxlength="20" autocomplete="nickname">
+        </label>
+        <div class="pick-row" role="group" aria-label="Your character">
+          <button class="pick small" data-action="me-character" data-arg="bubu" aria-pressed="false">
+            <span class="pick-art" data-art="bubu"></span><span class="pick-name">Bubu</span>
+          </button>
+          <button class="pick small" data-action="me-character" data-arg="dudu" aria-pressed="false">
+            <span class="pick-art" data-art="dudu"></span><span class="pick-name">Dudu</span>
+          </button>
+        </div>
+        <button class="btn" data-action="me-save">Save</button>
+
+        <h2>Notifications</h2>
+        <p class="muted" id="me-push-text"></p>
+        <button class="btn" data-action="push-enable" id="me-push-btn" hidden>Turn on notifications</button>
+
+        <h2>Pairing</h2>
+        <p class="muted" id="me-pair-text"></p>
+        <button class="btn ghost danger" data-action="unpair">Unpair</button>
+        <button class="btn ghost" data-action="demo-reset" id="demo-reset" hidden>Reset demo</button>
+      </section>
+    </div>
+
+    <nav class="tabbar" aria-label="Main">
+      <button data-action="tab" data-arg="home" aria-current="page">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11l8-6 8 6v8a1 1 0 0 1-1 1h-4v-5h-6v5H5a1 1 0 0 1-1-1z"/></svg>Us
+      </button>
+      <button data-action="tab" data-arg="status">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM9 10h.01M15 10h.01M8.5 14.5c1.8 1.8 5.2 1.8 7 0"/></svg>My status
+      </button>
+      <button data-action="tab" data-arg="moments">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2"/></svg>Moments
+      </button>
+      <button data-action="tab" data-arg="me">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5"/></svg>You
+      </button>
+    </nav>
+  </div>
+</body>
+</html>

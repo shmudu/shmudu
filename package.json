@@ -1,0 +1,19 @@
+{
+  "name": "shmudu",
+  "private": true,
+  "version": "0.1.0",
+  "description": "A Bubu & Dudu web app for checking in on each other.",
+  "type": "module",
+  "scripts": {
+    "start": "npx --yes serve@14.2.4 -l 3000 .",
+    "test": "node --test \"tests/*.test.js\"",
+    "icons": "node scripts/make-icons.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "firebase-admin": "^14.5.0",
+    "web-push": "^3.6.7"
+  }
+}

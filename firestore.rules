@@ -1,0 +1,71 @@
+rules_version = '2';
+
+// Paste into Firebase console → Firestore Database → Rules, then Publish.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function couple(cid) {
+      return get(/databases/$(database)/documents/couples/$(cid)).data;
+    }
+
+    function isMember(cid) {
+      return signedIn() && request.auth.uid in couple(cid).members;
+    }
+
+    // Your own profile and which couple you're in.
+    match /users/{uid} {
+      allow read, write: if signedIn() && request.auth.uid == uid;
+    }
+
+    // Push subscriptions: written by their owner, read only by the server (admin SDK).
+    match /pushSubs/{uid} {
+      allow write: if signedIn() && request.auth.uid == uid;
+    }
+
+    // A 6-digit invite code pointing at a couple that is waiting for its second member.
+    match /invites/{code} {
+      allow get: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.createdBy == request.auth.uid
+        && couple(request.resource.data.coupleId).members == [request.auth.uid]
+        && couple(request.resource.data.coupleId).code == code;
+      allow delete: if signedIn()
+        && (resource.data.createdBy == request.auth.uid || isMember(resource.data.coupleId));
+    }
+
+    match /couples/{cid} {
+      allow read: if signedIn() && request.auth.uid in resource.data.members;
+
+      allow create: if signedIn()
+        && request.resource.data.members == [request.auth.uid]
+        && request.resource.data.code is string;
+
+      allow update: if signedIn() && (
+        // Members can change anything except who the members are.
+        (request.auth.uid in resource.data.members
+          && request.resource.data.members == resource.data.members
+          && request.resource.data.code == resource.data.code)
+        ||
+        // Joining with a valid invite code: add only yourself, and only your own profile and status.
+        (resource.data.members.size() == 1
+          && !(request.auth.uid in resource.data.members)
+          && request.resource.data.members == resource.data.members.concat([request.auth.uid])
+          && exists(/databases/$(database)/documents/invites/$(resource.data.code))
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members', 'profiles', 'status'])
+          && request.resource.data.profiles.diff(resource.data.profiles).affectedKeys().hasOnly([request.auth.uid])
+          && request.resource.data.status.diff(resource.data.status).affectedKeys().hasOnly([request.auth.uid]))
+      );
+
+      match /events/{eid} {
+        allow read: if isMember(cid);
+        allow create: if isMember(cid)
+          && request.resource.data.from == request.auth.uid
+          && request.resource.data.kind in ['hug', 'kiss', 'poke', 'snack', 'think', 'status'];
+      }
+    }
+  }
+}
