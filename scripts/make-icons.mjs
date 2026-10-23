@@ -8,8 +8,8 @@ const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright')
 
 const html = `<!doctype html><html><body style="margin:0">
 <div id="icon" style="width:512px;height:512px;background:#F9E1E3;display:flex;align-items:center;justify-content:center;overflow:hidden">
-  <div style="width:300px;height:315px;margin-right:-36px;transform:rotate(-5deg) translateY(28px)">${characterSVG('bubu', 'happy')}</div>
-  <div style="width:300px;height:315px;margin-left:-36px;transform:rotate(5deg) translateY(28px)">${characterSVG('dudu', 'happy')}</div>
+  <div style="width:268px;height:327px;margin-right:-40px;transform:rotate(-5deg) translateY(40px)">${characterSVG('bubu', 'happy')}</div>
+  <div style="width:268px;height:327px;margin-left:-40px;transform:rotate(5deg) translateY(40px)">${characterSVG('dudu', 'happy')}</div>
 </div>
 <style>svg{width:100%;height:100%;display:block}</style>
 </body></html>`;
