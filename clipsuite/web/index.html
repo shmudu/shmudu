@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0e0e10">
+<title>ClipSuite</title>
+<style>
+  :root { --bg:#0e0e10; --card:#18181c; --line:#2a2a31; --text:#f2f2f4; --muted:#9a9aa4; --accent:#ffe500; --bad:#ff5a5a; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.45 -apple-system, system-ui, sans-serif; }
+  header { position:sticky; top:0; z-index:5; background:var(--bg); padding:14px 16px; border-bottom:1px solid var(--line);
+           display:flex; align-items:center; gap:10px; }
+  header h1 { font-size:18px; margin:0; flex:1; }
+  main { padding:16px; max-width:900px; margin:0 auto; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px; margin-bottom:14px; }
+  input, select, textarea, button { font:inherit; color:inherit; }
+  input, select, textarea { width:100%; background:#0f0f12; border:1px solid var(--line); border-radius:10px; padding:11px 12px; }
+  button { background:var(--accent); color:#111; border:0; border-radius:10px; padding:11px 14px; font-weight:700; cursor:pointer; }
+  button.ghost { background:transparent; color:var(--text); border:1px solid var(--line); }
+  button:disabled { opacity:.5; }
+  .row { display:flex; gap:8px; align-items:center; }
+  .row > * { flex:1; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(250px,1fr)); gap:14px; }
+  .muted { color:var(--muted); font-size:13px; }
+  .pill { display:inline-block; padding:2px 8px; border-radius:99px; background:#26262c; font-size:12px; }
+  .pill.done { background:#1d3b25; color:#7ee39a; } .pill.error { background:#3b1d1d; color:var(--bad); }
+  .job { display:flex; justify-content:space-between; gap:10px; padding:10px 0; border-top:1px solid var(--line); cursor:pointer; }
+  .job:first-child { border-top:0; }
+  video { width:100%; aspect-ratio:9/16; background:#000; border-radius:10px; }
+  label { display:block; font-size:12px; color:var(--muted); margin:10px 0 4px; }
+  details summary { cursor:pointer; color:var(--muted); margin-top:8px; }
+  .err { color:var(--bad); white-space:pre-wrap; font-size:12px; }
+  a { color:var(--accent); }
+</style>
+</head>
+<body>
+<header><h1>✂️ ClipSuite</h1><button class="ghost" id="homeBtn" hidden>All jobs</button></header>
+<main id="app"></main>
+<script>
+const qs = new URLSearchParams(location.search);
+let token = qs.get("t") || "";
+try { if (token) localStorage.setItem("cs_token", token); else token = localStorage.getItem("cs_token") || ""; } catch {}
+const app = document.getElementById("app");
+const homeBtn = document.getElementById("homeBtn");
+let timer = null;
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, { ...opts, headers: { "X-Token": token, ...(opts.headers || {}) } });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || r.statusText);
+  return data;
+}
+const fileUrl = (job, p, dl) => `/files/${job}/${p}?t=${encodeURIComponent(token)}${dl ? "&dl=1" : ""}&v=${Date.now() >> 12}`;
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
+const fmt = s => { s = Math.max(0, +s); const m = Math.floor(s / 60); return `${m}:${(s % 60).toFixed(1).padStart(4, "0")}`; };
+
+async function home() {
+  clearInterval(timer); homeBtn.hidden = true;
+  app.innerHTML = `
+    <div class="card">
+      <label>Paste a YouTube / TikTok / podcast link</label>
+      <input id="url" placeholder="https://..." inputmode="url" autocomplete="off">
+      <div class="row" style="margin-top:8px">
+        <select id="count">${[3,5,8,10].map(n => `<option ${n==5?"selected":""}>${n}</option>`).join("")}</select>
+        <select id="len"><option value="15-35">15–35s</option><option value="20-60" selected>20–60s</option><option value="45-90">45–90s</option></select>
+        <select id="preset"><option>bold</option><option>clean</option><option>boxed</option><option>minimal</option></select>
+      </div>
+      <label>What should the clips focus on? (optional)</label>
+      <input id="guidance" placeholder="e.g. funniest moments, money tips">
+      <div class="row" style="margin-top:10px"><button id="go">Make shorts</button>
+        <button class="ghost" id="upBtn">Upload video</button></div>
+      <input type="file" id="file" accept="video/*" hidden>
+      <div class="muted" id="msg" style="margin-top:8px"></div>
+    </div>
+    <div class="card"><b>Jobs</b><div id="jobs" class="muted">Loading…</div></div>`;
+  const opts = () => { const [a, b] = document.getElementById("len").value.split("-");
+    return { count: +document.getElementById("count").value, min_len: +a, max_len: +b,
+             guidance: document.getElementById("guidance").value, style: { preset: document.getElementById("preset").value } }; };
+  document.getElementById("go").onclick = async () => {
+    const msg = document.getElementById("msg");
+    try { const r = await api("/api/jobs", { method: "POST", body: JSON.stringify({ url: document.getElementById("url").value, ...opts() }) });
+      msg.textContent = r.note; setTimeout(loadJobs, 3000);
+    } catch (e) { msg.textContent = e.message; }
+  };
+  document.getElementById("upBtn").onclick = () => document.getElementById("file").click();
+  document.getElementById("file").onchange = async e => {
+    const f = e.target.files[0]; if (!f) return;
+    const msg = document.getElementById("msg"); msg.textContent = `Uploading ${f.name}…`;
+    const o = opts(); const p = new URLSearchParams({ name: f.name, count: o.count, min_len: o.min_len, max_len: o.max_len, guidance: o.guidance });
+    try { const r = await api(`/api/upload?${p}`, { method: "POST", body: f }); openJob(r.job); }
+    catch (err) { msg.textContent = err.message; }
+  };
+  loadJobs(); timer = setInterval(loadJobs, 5000);
+}
+
+async function loadJobs() {
+  const el = document.getElementById("jobs"); if (!el) return;
+  try {
+    const jobs = await api("/api/jobs");
+    el.innerHTML = jobs.length ? jobs.map(j => `<div class="job" data-id="${esc(j.id)}"><div><div>${esc(j.title)}</div>
+      <div class="muted">${esc(j.created || "")}</div></div><div><span class="pill ${esc(j.status)}">${esc(j.status)}</span></div></div>`).join("")
+      : "No jobs yet — paste a link above.";
+    el.querySelectorAll(".job").forEach(n => n.onclick = () => openJob(n.dataset.id));
+  } catch (e) { el.innerHTML = `<span class="err">${esc(e.message)}. Open the full link printed by <code>clipsuite serve</code>.</span>`; }
+}
+
+async function openJob(id) {
+  clearInterval(timer); homeBtn.hidden = false;
+  let last = "";
+  const draw = async () => {
+    const { job, clips, presets } = await api(`/api/jobs/${id}`);
+    const sig = JSON.stringify([job.status, clips.map(c => [c.id, c.render?.final, c.start, c.end, c.title, c.style])]);
+    if (sig === last) return; last = sig;
+    app.innerHTML = `
+      <div class="card"><b>${esc(job.title)}</b> <span class="pill ${esc(job.status)}">${esc(job.status)}</span>
+        ${job.error ? `<div class="err">${esc(job.error)}</div>` : ""}
+        <div class="row" style="margin-top:10px;flex-wrap:wrap">
+          <button class="ghost" data-exp="resolve">DaVinci (FCPXML)</button>
+          <button class="ghost" data-exp="chatcut">ChatCut bundle</button>
+          <button class="ghost" data-exp="wan2gp">Wan2GP prompts</button></div>
+        <div class="muted" id="expMsg"></div>
+        <details><summary>Add a clip by time</summary>
+          <div class="row"><input id="nS" placeholder="start (s)" inputmode="decimal"><input id="nE" placeholder="end (s)" inputmode="decimal"></div>
+          <input id="nT" placeholder="title" style="margin-top:8px"><button id="add" style="margin-top:8px">Add & render</button></details>
+      </div>
+      <div class="grid">${clips.map(c => clipCard(job, c, presets)).join("") || '<div class="muted">Clips appear here as they render…</div>'}</div>`;
+    app.querySelectorAll("[data-exp]").forEach(b => b.onclick = async () => {
+      try { const r = await api(`/api/jobs/${id}/export/${b.dataset.exp}`, { method: "POST" });
+        document.getElementById("expMsg").innerHTML = `Saved <a href="${fileUrl(id, r.file, 1)}">${esc(r.file)}</a> (also on the Mac in workspace/${esc(id)})`;
+      } catch (e) { document.getElementById("expMsg").textContent = e.message; } });
+    document.getElementById("add").onclick = async () => {
+      await api(`/api/jobs/${id}/clips`, { method: "POST", body: JSON.stringify({ start: +nS.value, end: +nE.value, title: nT.value }) }); last = ""; draw(); };
+    app.querySelectorAll("[data-save]").forEach(b => b.onclick = () => saveClip(id, b.dataset.save).then(() => { last = ""; draw(); }));
+    app.querySelectorAll("[data-del]").forEach(b => b.onclick = async () => {
+      if (confirm("Remove this clip from the list?")) { await api(`/api/jobs/${id}/clips/${b.dataset.del}`, { method: "DELETE" }); last = ""; draw(); } });
+    app.querySelectorAll("[data-nudge]").forEach(b => b.onclick = () => {
+      const [cid, field, d] = b.dataset.nudge.split("|"); const inp = document.getElementById(`${field}-${cid}`);
+      inp.value = (+inp.value + +d).toFixed(2); });
+  };
+  await draw(); timer = setInterval(() => draw().catch(() => {}), 4000);
+}
+
+function clipCard(job, c, presets) {
+  const st = c.style || {}; const ready = !!c.render?.final && job.status !== "rendering";
+  const id = esc(c.id);
+  return `<div class="card">
+    ${c.render?.final ? `<video controls playsinline preload="metadata" poster="${fileUrl(job.id, `clips/${c.id}/thumb.jpg`)}"
+        src="${fileUrl(job.id, `clips/${c.id}/final.mp4`)}"></video>` : `<div class="muted">Rendering…</div>`}
+    <div style="margin-top:8px"><b>${esc(c.title)}</b></div>
+    <div class="muted">${fmt(c.start)} → ${fmt(c.end)} · ${(c.end - c.start).toFixed(1)}s · score ${esc(c.score)}</div>
+    <div class="muted">${esc(c.reason)}</div>
+    ${ready ? `<a href="${fileUrl(job.id, `clips/${c.id}/final.mp4`, 1)}">Download</a> ·
+      <a href="${fileUrl(job.id, `clips/${c.id}/raw.mp4`, 1)}">No-caption version</a>` : ""}
+    <details><summary>Edit</summary>
+      <label>Title shown at the start</label><input id="title-${id}" value="${esc(c.title)}">
+      <label>Start (s)</label><div class="row"><button class="ghost" data-nudge="${id}|start|-1">−1</button>
+        <input id="start-${id}" value="${c.start}" inputmode="decimal"><button class="ghost" data-nudge="${id}|start|1">+1</button></div>
+      <label>End (s)</label><div class="row"><button class="ghost" data-nudge="${id}|end|-1">−1</button>
+        <input id="end-${id}" value="${c.end}" inputmode="decimal"><button class="ghost" data-nudge="${id}|end|1">+1</button></div>
+      <label>Caption style</label><select id="preset-${id}">${presets.map(p => `<option ${p === (st.preset || "bold") ? "selected" : ""}>${p}</option>`).join("")}</select>
+      <label>Framing</label><select id="reframe-${id}">${["auto","face","crop","blur","fit"].map(p => `<option ${p === (st.reframe || "auto") ? "selected" : ""}>${p}</option>`).join("")}</select>
+      <label>Crop position (0 = left, 1 = right; used by "crop")</label><input id="cropx-${id}" type="range" min="0" max="1" step="0.05" value="${st.crop_x ?? c.render?.crop_x ?? 0.5}">
+      <label>Caption height (0.5 = middle, 0.85 = low)</label><input id="pos-${id}" type="range" min="0.4" max="0.9" step="0.05" value="${st.position ?? 0.7}">
+      <div class="row" style="margin-top:10px"><button data-save="${id}">Save & re-render</button><button class="ghost" data-del="${id}">Remove</button></div>
+    </details></div>`;
+}
+
+async function saveClip(jobId, cid) {
+  const g = k => document.getElementById(`${k}-${cid}`).value;
+  await api(`/api/jobs/${jobId}/clips/${cid}`, { method: "POST", body: JSON.stringify({
+    title: g("title"), start: +g("start"), end: +g("end"),
+    style: { preset: g("preset"), reframe: g("reframe"), crop_x: +g("cropx"), position: +g("pos") } }) });
+}
+
+homeBtn.onclick = home;
+home();
+</script>
+</body>
+</html>

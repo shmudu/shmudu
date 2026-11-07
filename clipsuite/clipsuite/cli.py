@@ -1,0 +1,233 @@
+"""clipsuite command line.
+
+  clipsuite auto <url-or-file>           everything: download, transcribe, pick, render, exports
+  clipsuite serve                         phone-friendly web editor on your Wi-Fi
+  clipsuite doctor                        check which tools are installed
+Run `clipsuite <command> -h` for details.
+"""
+
+from __future__ import annotations
+
+import argparse
+import importlib.util
+import shutil
+import sys
+from pathlib import Path
+
+from .util import WORKSPACE, ToolMissing, job_dir, list_jobs, read_json
+
+
+def _job(name: str) -> Path:
+    if name == "latest":
+        jobs = list_jobs()
+        if not jobs:
+            sys.exit("No jobs yet.")
+        name = jobs[0]["id"]
+    d = job_dir(name)
+    if not d.exists():
+        sys.exit(f"No job named {name!r} in {WORKSPACE}")
+    return d
+
+
+def cmd_doctor(_a: argparse.Namespace) -> None:
+    from .transcribe import available_backends
+
+    rows = [
+        ("ffmpeg", bool(shutil.which("ffmpeg")), "brew install ffmpeg"),
+        ("yt-dlp", bool(shutil.which("yt-dlp")), "brew install yt-dlp"),
+        ("whisper backend", bool(available_backends()), "pip install mlx-whisper  (Apple Silicon)"),
+        ("node/npx (Remotion, HyperFrames)", bool(shutil.which("npx")), "brew install node"),
+        ("anthropic SDK (Claude clip picker)", bool(importlib.util.find_spec("anthropic")), "pip install anthropic"),
+        ("opencv (face-tracked crop)", bool(importlib.util.find_spec("cv2")), "pip install opencv-python-headless"),
+        ("DaVinci Resolve", Path("/Applications/DaVinci Resolve/DaVinci Resolve.app").exists(),
+         "download from blackmagicdesign.com/products/davinciresolve"),
+    ]
+    for name, ok, fix in rows:
+        print(f"  {'OK ' if ok else '-- '} {name:40s} {'' if ok else '-> ' + fix}")
+    print(f"\n  whisper backends found: {', '.join(available_backends()) or 'none'}")
+    print(f"  workspace: {WORKSPACE}")
+
+
+def cmd_auto(a: argparse.Namespace) -> None:
+    from . import pipeline
+
+    job = pipeline.ingest(a.source)
+    print(f"Job: {job.name}")
+    pipeline.process(job, vars(a) | {"style": {"preset": a.preset, "reframe": a.reframe}})
+    _summary(job)
+
+
+def cmd_download(a: argparse.Namespace) -> None:
+    from . import pipeline
+    print(pipeline.ingest(a.source).name)
+
+
+def cmd_transcribe(a: argparse.Namespace) -> None:
+    from . import transcribe
+    t = transcribe.transcribe(_job(a.job), a.backend, a.model, a.language, force=a.force)
+    print(f"{len(t['segments'])} segments ({t.get('backend')}, {t.get('language')})")
+
+
+def cmd_pick(a: argparse.Namespace) -> None:
+    from . import highlights
+    for c in highlights.pick(_job(a.job), a.picker, a.count, a.min_len, a.max_len, a.guidance):
+        print(f"  {c['id']:40s} {c['start']:8.1f}-{c['end']:8.1f}  score {c['score']}  {c['reason']}")
+
+
+def cmd_render(a: argparse.Namespace) -> None:
+    from . import render
+    render.render_all(_job(a.job), a.only, {"preset": a.preset, "reframe": a.reframe})
+    _summary(_job(a.job))
+
+
+def cmd_remotion(a: argparse.Namespace) -> None:
+    from . import remotion
+    print(remotion.render(_job(a.job), a.clip, preview=a.studio))
+
+
+def cmd_hyperframes(a: argparse.Namespace) -> None:
+    from . import hyperframes
+    print(hyperframes.build(_job(a.job), a.clip, cta=a.cta, render=not a.no_render))
+
+
+def cmd_resolve(a: argparse.Namespace) -> None:
+    from . import resolve
+    if a.push:
+        print("Imported into Resolve project:", resolve.push_to_resolve(_job(a.job)))
+    else:
+        print(resolve.export_fcpxml(_job(a.job)), "\n-> In Resolve: File > Import > Timeline...")
+
+
+def cmd_chatcut(a: argparse.Namespace) -> None:
+    from . import chatcut
+    print(chatcut.export(_job(a.job)), "\n-> Upload a clip's raw.mp4 to ChatCut and paste its BRIEF.md")
+
+
+def cmd_broll(a: argparse.Namespace) -> None:
+    from . import wan2gp
+    if a.action == "prompts":
+        print(wan2gp.write_prompts(_job(a.job)))
+    else:
+        c = wan2gp.attach(_job(a.job), a.clip, [Path(f) for f in a.files], a.at, a.duration)
+        print(f"{len(c['broll'])} b-roll inserts on {c['id']}. Re-render: clipsuite render {a.job} --only {a.clip}")
+
+
+def cmd_serve(a: argparse.Namespace) -> None:
+    from . import server
+    server.serve(a.host, a.port, open_access=a.no_token)
+
+
+def cmd_list(_a: argparse.Namespace) -> None:
+    for j in list_jobs():
+        print(f"  {j['id']:50s} {j.get('status', '?'):12s} {j.get('title', '')}")
+
+
+def _summary(job: Path) -> None:
+    print("\nRendered shorts:")
+    for c in read_json(job / "clips.json", []):
+        f = job / "clips" / c["id"] / "final.mp4"
+        if f.exists():
+            print(f"  {f}")
+    print(f"\nExports: {job / 'exports'}")
+
+
+def _pick_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--picker", choices=["auto", "heuristic", "claude"], default="auto")
+    p.add_argument("--count", type=int, default=5)
+    p.add_argument("--min-len", type=float, default=20)
+    p.add_argument("--max-len", type=float, default=60)
+    p.add_argument("--guidance", default="", help="e.g. 'funny moments only' or 'actionable tips'")
+
+
+def _style_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--preset", choices=["bold", "clean", "boxed", "minimal"], default="bold")
+    p.add_argument("--reframe", choices=["auto", "face", "crop", "blur", "fit"], default="auto")
+
+
+def main(argv: list[str] | None = None) -> None:
+    ap = argparse.ArgumentParser(prog="clipsuite", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    sub.add_parser("doctor", help="check installed tools").set_defaults(fn=cmd_doctor)
+    sub.add_parser("list", help="list jobs").set_defaults(fn=cmd_list)
+
+    p = sub.add_parser("auto", help="full pipeline from a URL or file")
+    p.add_argument("source")
+    p.add_argument("--backend", default="auto", choices=["auto", "mlx", "faster", "openai"])
+    p.add_argument("--model")
+    p.add_argument("--language")
+    _pick_args(p)
+    _style_args(p)
+    p.set_defaults(fn=cmd_auto)
+
+    p = sub.add_parser("download", help="yt-dlp a URL (or import a local file) into a new job")
+    p.add_argument("source")
+    p.set_defaults(fn=cmd_download)
+
+    p = sub.add_parser("transcribe", help="Whisper transcript with word timings")
+    p.add_argument("job")
+    p.add_argument("--backend", default="auto", choices=["auto", "mlx", "faster", "openai"])
+    p.add_argument("--model")
+    p.add_argument("--language")
+    p.add_argument("--force", action="store_true")
+    p.set_defaults(fn=cmd_transcribe)
+
+    p = sub.add_parser("pick", help="choose highlight clips")
+    p.add_argument("job")
+    _pick_args(p)
+    p.set_defaults(fn=cmd_pick)
+
+    p = sub.add_parser("render", help="FFmpeg: cut, reframe, caption")
+    p.add_argument("job")
+    p.add_argument("--only", nargs="*")
+    _style_args(p)
+    p.set_defaults(fn=cmd_render)
+
+    p = sub.add_parser("remotion", help="render a clip with the Remotion caption template")
+    p.add_argument("job")
+    p.add_argument("clip")
+    p.add_argument("--studio", action="store_true", help="open Remotion Studio to tweak visually")
+    p.set_defaults(fn=cmd_remotion)
+
+    p = sub.add_parser("hyperframes", help="add HyperFrames intro/outro cards to a clip")
+    p.add_argument("job")
+    p.add_argument("clip")
+    p.add_argument("--cta", default="Follow for part 2")
+    p.add_argument("--no-render", action="store_true", help="only write the editable HTML")
+    p.set_defaults(fn=cmd_hyperframes)
+
+    p = sub.add_parser("resolve", help="export FCPXML for DaVinci Resolve (or --push into a running Resolve)")
+    p.add_argument("job")
+    p.add_argument("--push", action="store_true")
+    p.set_defaults(fn=cmd_resolve)
+
+    p = sub.add_parser("chatcut", help="build ChatCut upload bundles + edit briefs")
+    p.add_argument("job")
+    p.set_defaults(fn=cmd_chatcut)
+
+    p = sub.add_parser("broll", help="Wan2GP b-roll: write prompts, or attach generated videos")
+    p.add_argument("action", choices=["prompts", "attach"])
+    p.add_argument("job")
+    p.add_argument("clip", nargs="?")
+    p.add_argument("files", nargs="*")
+    p.add_argument("--at", type=float, nargs="*", help="seconds into the clip for each file")
+    p.add_argument("--duration", type=float, default=2.5)
+    p.set_defaults(fn=cmd_broll)
+
+    p = sub.add_parser("serve", help="web editor you can open from your phone")
+    p.add_argument("--host", default="0.0.0.0")
+    p.add_argument("--port", type=int, default=8765)
+    p.add_argument("--no-token", action="store_true", help="disable the access token (trusted networks only)")
+    p.set_defaults(fn=cmd_serve)
+
+    a = ap.parse_args(argv)
+    if a.cmd == "broll" and a.action == "attach" and (not a.clip or not a.files):
+        ap.error("broll attach needs: <job> <clip-id> <file> [file...]")
+    try:
+        a.fn(a)
+    except ToolMissing as e:
+        sys.exit(f"Missing tool: {e}\nRun `clipsuite doctor` for the full checklist.")
+
+
+if __name__ == "__main__":
+    main()

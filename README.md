@@ -98,3 +98,7 @@ firestore.rules         database security rules
 scripts/make-icons.mjs  regenerates icons/ from the character drawings
 tests/                  unit tests (npm test)
 ```
+
+## ClipSuite
+
+The `clipsuite/` folder is a separate tool for turning long videos into captioned shorts. See [clipsuite/README.md](clipsuite/README.md).
