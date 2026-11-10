@@ -10,7 +10,8 @@ Script directions (on lines starting with ">" under a scene):
   > show: dave-before left, girl right flip enter
                                    characters (names you added with `clipsuite character add`)
                                    position: left / center / right / 0.0-1.0
-                                   size: tiny / small / big / huge;  flip;
+                                   size: tiny / small / big / huge;  flip;  closeup (mid-shot,
+                                   for art that's cut off at the legs);
                                    motion: enter (slide in), bounce, shake, glow (transformation flash), still
   > voice: af_bella                who's speaking this scene (Kokoro voice), default is the narrator
   > hud: EPISODE=1, GLOW-UP=0%     progress boxes along the top (stay until changed; "none" clears)
@@ -92,6 +93,9 @@ def parse_cast(value: str) -> list[dict[str, Any]]:
                 m["height"] = SIZES[t]
             elif t == "flip":
                 m["flip"] = True
+            elif t == "closeup":  # mid-shot: bottom edge below the frame, for art cut off at the legs
+                m["closeup"] = True
+                m["height"] = max(m["height"], 0.74)
             elif t in MOTIONS:
                 m["anim"].append(t)
         members.append(m)

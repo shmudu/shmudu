@@ -25,6 +25,7 @@ export type CastMember = {
   x: number; // 0..1 horizontal centre
   height: number; // fraction of frame height
   flip?: boolean;
+  closeup?: boolean; // mid-shot: bottom edge sits below the frame (for art cut off at the legs)
   anim?: string[]; // idle (always) + bounce | shake | enter | glow
 };
 export type HudItem = { label: string; value: string; color?: string };
@@ -132,13 +133,13 @@ const Character: React.FC<{ c: CastMember; sceneStart: number; i: number }> = ({
       style={{
         position: "absolute",
         left: c.x * W,
-        top: FLOOR_Y * H,
+        top: (c.closeup ? 1.03 : FLOOR_Y) * H,
         transform: `translate(-50%, -100%) translate(${dx}px, ${dy}px)`,
       }}
     >
       {/* floor shadow */}
-      <div style={{ position: "absolute", left: "50%", bottom: -18, width: h * 0.36, height: 36, borderRadius: "50%",
-        background: "rgba(0,0,0,.45)", transform: "translateX(-50%)", filter: "blur(4px)" }} />
+      {c.closeup ? null : <div style={{ position: "absolute", left: "50%", bottom: -18, width: h * 0.36, height: 36, borderRadius: "50%",
+        background: "rgba(0,0,0,.45)", transform: "translateX(-50%)", filter: "blur(4px)" }} />}
       <div style={{ transformOrigin: "50% 100%", transform: `scale(${pop}) scaleX(${c.flip ? -1 : 1}) scaleY(${sy}) rotate(${rot}deg)` }}>
         {c.sprite ? <Img src={staticFile(c.sprite)} style={{ height: h, width: "auto", display: "block" }} /> : <Placeholder name={c.name} h={h} />}
       </div>

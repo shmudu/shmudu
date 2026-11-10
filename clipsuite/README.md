@@ -176,7 +176,8 @@ Directions under each scene (see `clipsuite/cartoon.py` for the full list):
 ```
 
 Colour words in the narration with `*yellow*` or `{red words}` (`blue`, `green`, `pink`,
-`purple`, `orange`). Motions: `enter`, `bounce`, `shake`, `glow` (transformation flash), `still`.
+`purple`, `orange`). Motions: `enter`, `bounce`, `shake`, `glow` (transformation flash), `still`. Add `closeup` for art
+that's cut off at the legs (it sits at the bottom edge like a mid-shot).
 Background, cast and HUD carry over between scenes. Use characters you own: a series built on
 someone else's character (for example a game character) risks copyright claims and demonetization.
 

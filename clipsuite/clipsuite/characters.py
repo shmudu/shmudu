@@ -64,7 +64,7 @@ def cut_out(src: Path, part: str = "full", tolerance: int = 38) -> "Image.Image"
             if px == key or sum(abs(a - b) for a, b in zip(px, bg)) > tolerance * 3:
                 continue
             ImageDraw.floodfill(rgb, (sx, sy), key, thresh=tolerance)
-        _clear_enclosed_white(rgb, key, ImageDraw, min_area=int(w * h * 0.003))
+        _clear_enclosed_white(rgb, key, ImageDraw, min_area=int(w * h * 0.0006))
         mask = Image.new("L", (w, h))
         mask.putdata([0 if p == key else 255 for p in _pixels(rgb)])
         out = img.copy()

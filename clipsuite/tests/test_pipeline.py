@@ -341,6 +341,7 @@ def test_cartoon_directions_parse():
     assert cast[1]["flip"] and cast[1]["anim"] == ["enter"] and cast[1]["x"] == 0.7
     assert [m["x"] for m in cartoon.parse_cast("a, b")] == [0.3, 0.7]
     assert cartoon.parse_cast("a big 0.4")[0]["height"] == 0.72
+    assert cartoon.parse_cast("a closeup")[0]["closeup"] and cartoon.parse_cast("a closeup")[0]["height"] == 0.74
     hud = cartoon.parse_hud("EPISODE=1, glow-up=0%")
     assert hud[1] == {"label": "GLOW-UP", "value": "0%", "color": "#46D160"}
     assert cartoon.parse_hud("none") is None
