@@ -15,5 +15,12 @@ fi
 "$PY" -m venv .venv-chatterbox
 .venv-chatterbox/bin/pip install --upgrade pip
 .venv-chatterbox/bin/pip install "chatterbox-tts==0.1.7"
-.venv-chatterbox/bin/python -c "from chatterbox.tts import ChatterboxTTS; print('Chatterbox is installed.')"
+# Chatterbox's audio watermarker (resemble-perth) still imports pkg_resources, which newer
+# setuptools releases no longer ship. Without it the watermarker silently fails to load.
+.venv-chatterbox/bin/pip install "setuptools<81"
+.venv-chatterbox/bin/python -c "
+import perth
+assert perth.PerthImplicitWatermarker is not None, 'watermarker failed to load'
+from chatterbox.tts import ChatterboxTTS
+print('Chatterbox is installed.')"
 echo "ClipSuite will now use Chatterbox automatically (or pass --tts chatterbox)."
