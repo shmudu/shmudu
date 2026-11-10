@@ -13,7 +13,9 @@ Script directions (on lines starting with ">" under a scene):
                                    size: tiny / small / big / huge;  flip;  closeup (mid-shot,
                                    for art that's cut off at the legs);
                                    motion: enter (slide in), bounce, shake, glow (transformation flash), still
-  > voice: af_bella                who's speaking this scene (Kokoro voice), default is the narrator
+  > voice: girl                    who's speaking this scene: a saved voice sample (clipsuite voice add)
+                                   or a Kokoro voice name; default is the narrator
+  > emotion: 0.9                   how expressive this line is (Chatterbox; 0.3 calm - 1.5 intense)
   > hud: EPISODE=1, GLOW-UP=0%     progress boxes along the top (stay until changed; "none" clears)
   > banner: 30 DAYS TO WIN HER     title banner for this scene
   > note: NO.                      sticky-note gag for this scene
@@ -28,7 +30,6 @@ scene until you change them.
 from __future__ import annotations
 
 import difflib
-import hashlib
 import re
 import shutil
 import time
@@ -39,6 +40,7 @@ from . import characters, create, transcribe
 from .download import new_job
 from .pipeline import set_status
 from .remotion import REMOTION_DIR, remotion_cmd
+from .voice import scene_lines, voice_lines
 from .util import probe, read_json, require, run, slugify, write_json
 
 BUILTIN_BG = {"bedroom", "gym", "plain"}
@@ -213,19 +215,13 @@ def _build(plan: dict[str, Any], job: Path, voice: str, tts: str, music: str | N
     missing: set[str] = set()
     scenes_out, voice_files, words = [], [], []
     background, cast, hud = "bedroom", [], None
+    wavs = voice_lines(scene_lines(plan), work, tts)
     t = 0.0
     for i, sc in enumerate(plan["scenes"]):
         n = f"{i + 1:02d}"
         spoken = create.plain_text(sc["text"])
         print(f"Scene {n}/{len(plan['scenes'])}: {spoken[:60]}", flush=True)
-        v = sc.get("voice") if isinstance(sc.get("voice"), str) else ""
-        v = v or plan["voice"]
-        wav = work / f"voice-{n}.wav"
-        key = hashlib.sha1(f"{spoken}|{v}|{tts}".encode()).hexdigest()[:10]
-        stamp = work / f"voice-{n}.key"
-        if not wav.exists() or not stamp.exists() or stamp.read_text() != key:
-            create.synthesize(spoken, wav, v, tts)
-            stamp.write_text(key)
+        wav = wavs[i]
         dur = probe(wav)["duration"]
         voice_files.append(wav)
 

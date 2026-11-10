@@ -493,3 +493,42 @@ def test_character_add_refuses_screenshots_of_scenes(tmp_path):
     ImageDraw.Draw(art).rectangle((120, 100, 280, 599), fill=(40, 40, 50))
     art.save(tmp_path / "art.jpg", quality=80)
     assert characters.cut_out(tmp_path / "art.jpg").size[1] > 400
+
+
+def test_pronunciations_and_chatterbox_batch(ws, tmp_path, monkeypatch):
+    import stat
+    from clipsuite import util, voice
+
+    monkeypatch.setattr(util, "CONFIG_FILE", tmp_path / "cfg.json")
+    voice.set_pronunciation("Saito", "Sigh-toh")
+    assert voice.apply_pronunciations("Meet Saito. SAITO wins.") == "Meet Sigh-toh. Sigh-toh wins."
+
+    # fake Chatterbox environment: writes a tone per job, logs what it was asked to say
+    log = tmp_path / "said.json"
+    fake = tmp_path / "fakepy"
+    fake.write_text(f"""#!/usr/bin/env python3
+import json, subprocess, sys
+jobs = json.load(open(sys.argv[2]))
+json.dump(jobs, open({str(log)!r}, "w"))
+for j in jobs:
+    subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", "sine=duration=1", "-ar", "24000", j["out"]],
+                   check=True, capture_output=True)
+""")
+    fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
+    monkeypatch.setattr(voice, "CHATTERBOX_PY", fake)
+    sample = tmp_path / "me.wav"
+    subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", "sine=duration=3", str(sample)], check=True, capture_output=True)
+    voice.add_voice("narrator", sample)
+
+    work = tmp_path / "work"
+    work.mkdir()
+    lines = [{"text": "Meet Saito.", "voice": "narrator", "emotion": None},
+             {"text": "Ruin me.", "voice": "nobody", "emotion": "1.2"}]
+    wavs = voice.voice_lines(lines, work)
+    said = json.loads(log.read_text())
+    assert said[0]["text"] == "Meet Sigh-toh." and said[0]["voice"].endswith("narrator.wav")
+    assert said[1]["voice"] == "" and said[1]["exaggeration"] == 1.2 and said[1]["cfg_weight"] == 0.35
+    assert all(util.probe(w)["duration"] > 1.0 for w in wavs)
+    log.unlink()
+    voice.voice_lines(lines, work)          # unchanged lines are reused, nothing re-voiced
+    assert not log.exists()

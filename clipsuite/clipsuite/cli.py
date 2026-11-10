@@ -36,6 +36,11 @@ def _stock_ok() -> bool:
     return has_stock_source()
 
 
+def _chatterbox() -> bool:
+    from .voice import chatterbox_installed
+    return chatterbox_installed()
+
+
 def _tts() -> list[str]:
     from .create import tts_backends
     return tts_backends()
@@ -64,6 +69,7 @@ def cmd_doctor(_a: argparse.Namespace) -> None:
         ("whisper backend", bool(available_backends()), "pip install mlx-whisper  (Apple Silicon)"),
         ("node/npx (Remotion, HyperFrames)", bool(shutil.which("npx")), "brew install node"),
         ("anthropic SDK (Claude clip picker)", bool(importlib.util.find_spec("anthropic")), "pip install anthropic"),
+        ("natural narrator (Chatterbox)", _chatterbox(), "bash setup/install_chatterbox.sh"),
         ("voice for `create` (Kokoro / say)", bool(_tts()), "pip install 'kokoro>=0.9.4' soundfile"),
         ("stock footage for `create`", _stock_ok(),
          "clipsuite config footage_dir ~/Movies/Broll  and/or  clipsuite config pixabay_api_key KEY "
@@ -194,6 +200,35 @@ def cmd_create(a: argparse.Namespace) -> None:
         cartoon_mod.build(plan, voice=a.voice, tts=a.tts, music=a.music)
     else:
         create.build(plan, voice=a.voice, **kw)
+
+
+def cmd_pronounce(a: argparse.Namespace) -> None:
+    from . import voice
+
+    if a.word and a.say_as:
+        table = voice.set_pronunciation(a.word, None if a.say_as == "-" else a.say_as)
+    else:
+        table = voice.pronunciations()
+    if not table:
+        print('No custom pronunciations. Add one with: clipsuite pronounce Saito "Sigh-toh"')
+    for w, s in sorted(table.items()):
+        print(f"  {w:20s} -> {s}")
+    if a.word and a.say_as:
+        print("Re-render to hear it; only lines containing the word are re-voiced.")
+
+
+def cmd_voice(a: argparse.Namespace) -> None:
+    from . import voice
+
+    if a.action == "list":
+        d = voice.voices_dir()
+        names = sorted(p.stem for p in d.glob("*.wav")) if d.exists() else []
+        print("Voice samples: " + (", ".join(names) or "(none)"))
+        print("Engine: " + ("chatterbox" if voice.chatterbox_installed() else "kokoro (run setup/install_chatterbox.sh for Chatterbox)"))
+        return
+    if not a.name or not a.audio or not Path(a.audio).expanduser().exists():
+        sys.exit("Usage: clipsuite voice add NAME recording.m4a   (10-30 s of clean speech you have the rights to)")
+    print(f"Saved {voice.add_voice(a.name, Path(a.audio))}\nUse it with --voice {a.name} or '> voice: {a.name}'")
 
 
 def cmd_split(a: argparse.Namespace) -> None:
@@ -363,7 +398,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--script", help="text file with your script (see `clipsuite create -h` docs in README)")
     p.add_argument("--rebuild", metavar="JOB", help="rebuild a created job after editing its plan.json")
     p.add_argument("--voice", default="", help="Kokoro voice, e.g. af_heart, am_michael, bf_emma (or a macOS voice)")
-    p.add_argument("--tts", default="auto", choices=["auto", "kokoro", "say", "espeak"])
+    p.add_argument("--tts", default="auto", choices=["auto", "chatterbox", "kokoro", "say", "espeak"])
     p.add_argument("--music", help="background music file (auto-ducked under the voice)")
     p.add_argument("--footage", help="folder of your own b-roll clips to use (matched by file/folder names)")
     p.add_argument("--seconds", type=int, default=75, help="target length when Claude writes the script")
@@ -382,6 +417,17 @@ def main(argv: list[str] | None = None) -> None:
                        help="take only the left or right half of the image (for side-by-side art)")
         p.add_argument("--keep-background", action="store_true", help="don't cut the character out")
         p.set_defaults(fn=cmd_character, kind=kind)
+
+    p = sub.add_parser("pronounce", help='fix how the narrator says a word: clipsuite pronounce Saito "Sigh-toh"')
+    p.add_argument("word", nargs="?")
+    p.add_argument("say_as", nargs="?", help='how to say it; "-" removes the entry')
+    p.set_defaults(fn=cmd_pronounce)
+
+    p = sub.add_parser("voice", help="save a voice sample for Chatterbox to speak with, or list them")
+    p.add_argument("action", choices=["add", "list"])
+    p.add_argument("name", nargs="?")
+    p.add_argument("audio", nargs="?", help="10-30 seconds of clean speech (wav/mp3/m4a)")
+    p.set_defaults(fn=cmd_voice)
 
     p = sub.add_parser("split", help="cut a multi-panel collage into separate images")
     p.add_argument("image")

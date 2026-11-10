@@ -429,18 +429,16 @@ def _build(plan: dict[str, Any], job: Path, voice: str, tts: str, music: str | N
         plan["music"] = str(Path(music).expanduser().resolve())
     write_json(job / "plan.json", plan)
 
+    from .voice import scene_lines, voice_lines
+
+    wavs = voice_lines(scene_lines(plan), work, tts)
     used: set = set()
     credits, seg_files, voice_files, transcript_segs = [], [], [], []
     t = 0.0
     for i, scene in enumerate(plan["scenes"]):
         n = f"{i + 1:02d}"
         print(f"Scene {n}/{len(plan['scenes'])}: {scene['text'][:60]}", flush=True)
-        wav = work / f"voice-{n}.wav"
-        key = hashlib.sha1(f"{plain_text(scene['text'])}|{scene.get('voice') or plan.get('voice')}|{tts}".encode()).hexdigest()[:10]
-        stamp = work / f"voice-{n}.key"
-        if not wav.exists() or not stamp.exists() or stamp.read_text() != key:
-            synthesize(plain_text(scene["text"]), wav, scene.get("voice") or plan.get("voice", ""), tts)
-            stamp.write_text(key)
+        wav = wavs[i]
         dur = probe(wav)["duration"]
 
         seg = work / f"scene-{n}.mp4"

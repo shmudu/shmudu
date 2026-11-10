@@ -183,6 +183,17 @@ Background, cast and HUD carry over between scenes. Image backgrounds slowly pan
 `> show: none` gives a full-frame art scene with no characters on top. Use characters you own: a series built on
 someone else's character (for example a game character) risks copyright claims and demonetization.
 
+## Narration quality
+
+- **Chatterbox** (recommended): `bash setup/install_chatterbox.sh` installs Resemble AI's open-source
+  model in its own environment; `create` then uses it automatically. Much more natural than Kokoro,
+  and it can speak in a voice from a 10-30 s sample you have the rights to (e.g. your own):
+  `clipsuite voice add narrator my-voice.m4a`, then `--voice narrator` or `> voice: narrator` per scene.
+  `> emotion: 0.9` makes a line more intense (0.3 calm to 1.5 dramatic).
+- **Names**: `clipsuite pronounce Saito "Sigh-toh"` fixes how a word is read, for every engine.
+- **Writing**: full sentences with contractions sound far better than fragments. Write
+  "He lives on energy drinks." rather than "Lives on energy drinks."
+
 ## Editing in DaVinci Resolve
 
 1. `clipsuite resolve latest`
