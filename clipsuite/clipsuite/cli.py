@@ -29,6 +29,17 @@ def _job(name: str) -> Path:
     return d
 
 
+def _opencv_ok() -> bool:
+    """True only if OpenCV imports AND has face detection (half-installed copies don't)."""
+    if not importlib.util.find_spec("cv2"):
+        return False
+    try:
+        import cv2  # type: ignore
+        return not cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml").empty()
+    except Exception:
+        return False
+
+
 def cmd_doctor(_a: argparse.Namespace) -> None:
     from .transcribe import available_backends
 
@@ -38,7 +49,9 @@ def cmd_doctor(_a: argparse.Namespace) -> None:
         ("whisper backend", bool(available_backends()), "pip install mlx-whisper  (Apple Silicon)"),
         ("node/npx (Remotion, HyperFrames)", bool(shutil.which("npx")), "brew install node"),
         ("anthropic SDK (Claude clip picker)", bool(importlib.util.find_spec("anthropic")), "pip install anthropic"),
-        ("opencv (face-tracked crop)", bool(importlib.util.find_spec("cv2")), "pip install opencv-python-headless"),
+        ("opencv (face-tracked crop)", _opencv_ok(),
+         "pip uninstall -y opencv-python opencv-python-headless opencv-contrib-python && "
+         "pip install --force-reinstall opencv-python-headless"),
         ("DaVinci Resolve", Path("/Applications/DaVinci Resolve/DaVinci Resolve.app").exists(),
          "download from blackmagicdesign.com/products/davinciresolve"),
     ]

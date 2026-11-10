@@ -39,9 +39,20 @@ def detect_face_x(video: Path, start: float, end: float, samples: int = 12) -> f
     """Median horizontal face position (0..1) across the clip, using OpenCV if installed."""
     if not importlib.util.find_spec("cv2"):
         return None
+    try:
+        return _detect_face_x(video, start, end, samples)
+    except Exception as e:  # a broken OpenCV install must never stop a render
+        print(f"  ! face tracking unavailable ({e.__class__.__name__}: {e}); using a standard crop. "
+              "Fix: run `clipsuite doctor`.", flush=True)
+        return None
+
+
+def _detect_face_x(video: Path, start: float, end: float, samples: int) -> float | None:
     import cv2  # type: ignore
 
     cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+    if cascade.empty():
+        return None
     cap = cv2.VideoCapture(str(video))
     xs = []
     for k in range(samples):

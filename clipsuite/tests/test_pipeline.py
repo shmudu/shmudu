@@ -149,3 +149,17 @@ def test_cli_doctor_runs(capsys):
 
     cli.main(["doctor"])
     assert "ffmpeg" in capsys.readouterr().out
+
+
+def test_broken_opencv_falls_back(monkeypatch, tmp_path, capsys):
+    """A half-installed cv2 (no CascadeClassifier) must not crash rendering."""
+    import sys
+    import types
+    from clipsuite import cli, render
+
+    broken = types.ModuleType("cv2")
+    monkeypatch.setitem(sys.modules, "cv2", broken)
+    monkeypatch.setattr(render.importlib.util, "find_spec", lambda name: object())
+    assert render.detect_face_x(tmp_path / "x.mp4", 0, 5) is None
+    assert "face tracking unavailable" in capsys.readouterr().out
+    assert cli._opencv_ok() is False
