@@ -3,6 +3,7 @@ progress bar, hook title) instead of FFmpeg's burned-in .ass captions."""
 
 from __future__ import annotations
 
+import os
 import shutil
 from pathlib import Path
 from typing import Any
@@ -10,6 +11,20 @@ from typing import Any
 from .util import read_json, require, run, write_json
 
 REMOTION_DIR = Path(__file__).resolve().parent.parent / "remotion"
+
+
+def remotion_cmd(composition: str, out: Path, props_path: Path) -> list[str]:
+    """`npx remotion render` for a composition; installs the template's packages on first use.
+
+    Set CLIPSUITE_BROWSER to a Chrome/Chromium binary to skip Remotion's own browser download.
+    """
+    require("npx", "Install Node.js 22+ (brew install node).")
+    if not (REMOTION_DIR / "node_modules" / "@fontsource" / "anton").exists():
+        run(["npm", "install"], cwd=REMOTION_DIR)
+    cmd = ["npx", "remotion", "render", "src/index.ts", composition, str(out), f"--props={props_path}"]
+    if os.environ.get("CLIPSUITE_BROWSER"):
+        cmd.append(f"--browser-executable={os.environ['CLIPSUITE_BROWSER']}")
+    return cmd
 
 
 def props_for(job: Path, clip: dict[str, Any], static_name: str) -> dict[str, Any]:
@@ -29,9 +44,6 @@ def props_for(job: Path, clip: dict[str, Any], static_name: str) -> dict[str, An
 
 
 def render(job: Path, clip_id: str, preview: bool = False) -> Path:
-    require("npx", "Install Node.js 22+ (brew install node).")
-    if not (REMOTION_DIR / "node_modules").exists():
-        run(["npm", "install"], cwd=REMOTION_DIR)
     clips = {c["id"]: c for c in read_json(job / "clips.json", [])}
     clip = clips[clip_id]
     raw = job / "clips" / clip_id / "raw.mp4"
@@ -49,6 +61,5 @@ def render(job: Path, clip_id: str, preview: bool = False) -> Path:
         run(["npx", "remotion", "studio", "src/index.ts", f"--props={props_path}"], cwd=REMOTION_DIR)
         return props_path
     out = job / "clips" / clip_id / "remotion.mp4"
-    run(["npx", "remotion", "render", "src/index.ts", "CaptionedShort", str(out), f"--props={props_path}"],
-        cwd=REMOTION_DIR)
+    run(remotion_cmd("CaptionedShort", out, props_path), cwd=REMOTION_DIR)
     return out

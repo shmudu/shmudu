@@ -116,6 +116,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"error": "bad token"}, 401)
         if path == "/api/jobs":
             return self._json(list_jobs())
+        if path == "/api/cartoon-example":
+            from . import cartoon
+            return self._json({"script": cartoon.TEMPLATE.replace("{title}", "Day 1 of 30")})
         if m := re.fullmatch(r"/api/jobs/([\w.-]+)", path):
             d = job_dir(m.group(1))
             return self._json({"job": read_json(d / "job.json"), "clips": read_json(d / "clips.json", []),
@@ -152,7 +155,12 @@ class Handler(BaseHTTPRequestHandler):
                 except ValueError as e:
                     return self._json({"error": str(e)}, 400)
                 voice = str(body.get("voice", ""))[:40]
-                threading.Thread(target=_safe(lambda: create.build(plan, voice=voice)), daemon=True).start()
+                if body.get("style") == "cartoon":
+                    from . import cartoon
+                    target = lambda: cartoon.build(plan, voice=voice)  # noqa: E731
+                else:
+                    target = lambda: create.build(plan, voice=voice)  # noqa: E731
+                threading.Thread(target=_safe(target), daemon=True).start()
                 return self._json({"ok": True, "note": f"Building \"{plan['title']}\" "
                                    f"({len(plan['scenes'])} scenes). It appears in Jobs in a moment."})
 

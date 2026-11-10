@@ -331,3 +331,93 @@ def test_create_missing_script_writes_template(ws, tmp_path):
     with pytest.raises(SystemExit) as e:  # untouched template is refused, not rendered
         cli.main(["create", "--script", str(target)])
     assert "still has the template text" in str(e.value)
+
+
+def test_cartoon_directions_parse():
+    from clipsuite import cartoon
+
+    cast = cartoon.parse_cast("dave-before left bounce, girl right flip enter")
+    assert cast[0] == {"name": "dave-before", "x": 0.3, "height": 0.62, "flip": False, "anim": ["bounce"]}
+    assert cast[1]["flip"] and cast[1]["anim"] == ["enter"] and cast[1]["x"] == 0.7
+    assert [m["x"] for m in cartoon.parse_cast("a, b")] == [0.3, 0.7]
+    assert cartoon.parse_cast("a big 0.4")[0]["height"] == 0.72
+    hud = cartoon.parse_hud("EPISODE=1, glow-up=0%")
+    assert hud[1] == {"label": "GLOW-UP", "value": "0%", "color": "#46D160"}
+    assert cartoon.parse_hud("none") is None
+    vote = cartoon.parse_vote("gym | Lift heavy. / diet | No more cans.")
+    assert vote["a"] == {"title": "GYM", "sub": "Lift heavy."} and vote["b"]["title"] == "DIET"
+
+
+def test_caption_colours_follow_whisper_words():
+    from clipsuite import cartoon, create
+
+    tokens = create.script_tokens("One {green energy drink} and a note that says {red NO}.")
+    whisper = [{"w": w, "start": i, "end": i + 1} for i, w in
+               enumerate("one energy drink and uh a note that says no".split())]
+    out = cartoon.color_words(whisper, tokens)
+    assert out[1]["color"] == out[2]["color"] == "#46D160"
+    assert out[-1]["color"] == "#FF3B30" and "color" not in out[4]
+    spread = cartoon.spread_words(tokens, 2.0, 6.0)
+    assert spread[0]["start"] == 2.0 and spread[-1]["end"] <= 5.76 and spread[-1]["w"] == "NO."
+
+
+def test_cut_out_removes_background_and_gaps(tmp_path):
+    from PIL import Image, ImageDraw
+    from clipsuite import characters
+
+    img = Image.new("RGB", (400, 600), "white")
+    d = ImageDraw.Draw(img)
+    d.rectangle((100, 100, 300, 500), fill="black")          # body
+    d.rectangle((160, 200, 240, 400), fill="white")          # big enclosed gap (arm/body)
+    d.rectangle((130, 120, 136, 126), fill="white")          # tiny white detail (an eye)
+    src = tmp_path / "c.png"
+    img.save(src)
+    out = characters.cut_out(src)
+    a = out.getchannel("A")
+    ox, oy = 100 - 4, 100 - 4  # trimmed to the figure plus padding
+    assert out.size == (209, 409)
+    assert a.getpixel((200 - ox, 300 - oy)) == 0      # gap cleared
+    assert a.getpixel((133 - ox, 123 - oy)) == 255    # small detail kept
+    assert a.getpixel((110 - ox, 110 - oy)) == 255    # body kept
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg"), reason="ffmpeg not installed")
+def test_cartoon_build_pipeline(ws, tmp_path, monkeypatch):
+    from PIL import Image
+    from clipsuite import cartoon, characters, create, util
+
+    importlib.reload(characters)
+    importlib.reload(cartoon)
+    Image.new("RGB", (300, 600), "white").save(tmp_path / "dave.png")
+    characters.add_character("dave-before", tmp_path / "dave.png", keep_background=True)
+    monkeypatch.setattr(create, "synthesize", _fake_tts)
+    monkeypatch.setattr(cartoon.transcribe, "available_backends", lambda: [])
+    pub = tmp_path / "remotion"
+    monkeypatch.setattr(cartoon, "REMOTION_DIR", pub)
+    seen = {}
+
+    def fake_cmd(comp, out, props):
+        seen["props"] = util.read_json(Path(props))
+        seen["comp"] = comp
+        dur = seen["props"]["durationInSeconds"]
+        return ["ffmpeg", "-y", "-f", "lavfi", "-i", f"color=c=purple:size=1080x1920:rate=30:duration={dur}",
+                "-f", "lavfi", "-i", f"sine=duration={dur}", "-shortest", "-pix_fmt", "yuv420p", str(out)]
+    monkeypatch.setattr(cartoon, "remotion_cmd", fake_cmd)
+
+    plan = create.parse_script(cartoon.TEMPLATE.replace("{title}", "Day 1"))
+    job = cartoon.build(plan)
+    props = seen["props"]
+    assert seen["comp"] == "CartoonShort" and len(props["scenes"]) == 5
+    s = props["scenes"]
+    assert s[0]["background"] == "bedroom" and s[0]["cast"][0]["sprite"].endswith("char-dave-before.png")
+    assert s[0]["hud"][1]["value"] == "0%" and s[0]["banner"] == "30 DAYS TO WIN HER"
+    assert s[1]["cast"][0]["name"] == "girl" and s[1]["cast"][0]["sprite"] == ""   # placeholder
+    assert s[2]["note"] == "NO." and "banner" not in s[2] and s[2]["hud"]            # hud carries over
+    assert s[3]["background"] == "gym" and s[4]["vote"]["a"]["title"] == "GYM"
+    assert s[4]["cast"][0]["anim"] == ["bounce"]                                     # one-shots dropped
+    assert any(w.get("color") == "#FF3B30" for w in props["words"])
+    assert (pub / "public" / props["audioFile"]).exists()
+    clip = util.read_json(job / "clips.json")[0]
+    assert (job / "clips" / clip["id"] / "final.mp4").exists()
+    assert util.read_json(job / "job.json")["status"] == "done"
+    assert util.read_json(job / "plan.json")["style"] == "cartoon"

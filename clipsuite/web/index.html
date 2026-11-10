@@ -83,7 +83,11 @@ Most people never save a dollar. Here's what finally worked for me.
 
 Habit one: pay yourself first.
 &gt; text: PAY YOURSELF FIRST"></textarea>
-      <label>Voice</label>
+      <label>Look</label>
+      <select id="cstyle"><option value="stock">Stock footage + headline cards</option>
+        <option value="cartoon">Cartoon story (your characters)</option></select>
+      <button class="ghost" id="cexample" style="margin-top:8px;width:100%">Load the cartoon example script</button>
+      <label>Narrator voice</label>
       <select id="voice"><option value="af_heart">Heart (US female)</option><option value="af_bella">Bella (US female)</option>
         <option value="am_michael">Michael (US male)</option><option value="am_fenrir">Fenrir (US male)</option>
         <option value="bf_emma">Emma (UK female)</option><option value="bm_george">George (UK male)</option></select>
@@ -92,10 +96,15 @@ Habit one: pay yourself first.
     <div class="card"><b>Jobs</b><div id="jobs" class="muted">Loading…</div></div>`;
   try { const d = localStorage.getItem("cs_script"); if (d) document.getElementById("script").value = d; } catch {}
   document.getElementById("script").oninput = e => { try { localStorage.setItem("cs_script", e.target.value); } catch {} };
+  document.getElementById("cexample").onclick = async () => {
+    try { const r = await api("/api/cartoon-example"); document.getElementById("script").value = r.script;
+      document.getElementById("cstyle").value = "cartoon"; } catch (e) { document.getElementById("cmsg").textContent = e.message; }
+  };
   document.getElementById("create").onclick = async () => {
     const m = document.getElementById("cmsg");
     try { const r = await api("/api/create", { method: "POST", body: JSON.stringify({
-        script: document.getElementById("script").value, voice: document.getElementById("voice").value }) });
+        script: document.getElementById("script").value, voice: document.getElementById("voice").value,
+        style: document.getElementById("cstyle").value }) });
       m.textContent = r.note; setTimeout(loadJobs, 3000);
     } catch (e) { m.textContent = e.message; }
   };

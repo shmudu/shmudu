@@ -144,6 +144,42 @@ and run `clipsuite create --rebuild <job>`; unchanged voice lines are reused. St
 `credits.txt`. With an `ANTHROPIC_API_KEY`, `clipsuite create "topic"` has Claude write the script.
 The phone editor has a **Create a video from a script** box too.
 
+## Cartoon story series (`clipsuite create --style cartoon`)
+
+An episodic story with your own recurring characters: puppet-animated sprites over moody
+backgrounds, bold captions with coloured keywords, a progress HUD, banners, sticky-note gags
+and a split-screen "comment one word" vote card. All free and local (Kokoro + Remotion).
+
+```bash
+# 1. add your character art (plain white backgrounds are cut out automatically)
+clipsuite character add dave-before art.png --part left    # --part takes half of a side-by-side image
+clipsuite character add dave-after  art.png --part right
+clipsuite character add girl girl.png
+clipsuite background add bedroom my-bedroom.png              # optional: replace a built-in background
+clipsuite character list
+
+# 2. get an example episode script, edit it, render it
+clipsuite create "Day 1 of 30" --style cartoon
+clipsuite create --style cartoon --script workspace/_drafts/day-1-of-30.txt --voice am_michael
+```
+
+Directions under each scene (see `clipsuite/cartoon.py` for the full list):
+
+```
+> scene: bedroom                      built-in bedroom / gym / plain, or one you added
+> show: dave-before left bounce, girl right flip enter
+> voice: af_bella                     who's speaking in this scene
+> hud: EPISODE=1, GLOW-UP=0%
+> banner: 30 DAYS TO WIN HER
+> note: NO.
+> vote: GYM | Lift heavy. / DIET | No more energy drinks.
+```
+
+Colour words in the narration with `*yellow*` or `{red words}` (`blue`, `green`, `pink`,
+`purple`, `orange`). Motions: `enter`, `bounce`, `shake`, `glow` (transformation flash), `still`.
+Background, cast and HUD carry over between scenes. Use characters you own: a series built on
+someone else's character (for example a game character) risks copyright claims and demonetization.
+
 ## Editing in DaVinci Resolve
 
 1. `clipsuite resolve latest`

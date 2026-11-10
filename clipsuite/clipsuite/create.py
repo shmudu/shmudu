@@ -89,6 +89,8 @@ def parse_script(text: str, default_title: str = "") -> dict[str, Any]:
                     scene["kind"], scene["visual"] = "stock", val
                 elif key in ("text", "card", "title"):
                     scene["kind"], scene["headline"] = "text", val
+                elif key:
+                    scene[key] = val if val else True
                 continue
             lines.append(line)
         if lines:
@@ -96,11 +98,43 @@ def parse_script(text: str, default_title: str = "") -> dict[str, Any]:
             scenes.append(scene)
     if not scenes:
         raise ValueError("The script has no narration. Write at least one paragraph.")
-    title = title or _short(scenes[0]["text"], 8)
+    title = title or _short(plain_text(scenes[0]["text"]), 8)
     for s in scenes:
-        s["visual"] = s["visual"] or keywords(s["text"])
-        s["headline"] = s["headline"] or _short(s["text"], 6).upper()
+        s["visual"] = s["visual"] or keywords(plain_text(s["text"]))
+        s["headline"] = s["headline"] or _short(plain_text(s["text"]), 6).upper()
     return {"title": title, "scenes": scenes}
+
+
+COLORS = {"red": "#FF3B30", "blue": "#4DA3FF", "green": "#46D160", "yellow": "#FFD60A", "orange": "#FF9F0A",
+          "pink": "#FF5FA2", "purple": "#B583FF", "white": "#FFFFFF"}
+_MARKUP = re.compile(r"\*([^*]+)\*|\{(\w+)\s+([^}]+)\}")
+
+
+def script_tokens(text: str) -> list[tuple[str, str | None]]:
+    """Words with their caption colour. `*word*` = yellow, `{red some words}` = that colour."""
+    out: list[tuple[str, str | None]] = []
+    pos = 0
+    for m in _MARKUP.finditer(text):
+        out += [(w, None) for w in text[pos:m.start()].split()]
+        if m.group(1) is not None:
+            out += [(w, COLORS["yellow"]) for w in m.group(1).split()]
+        else:
+            color = COLORS.get(m.group(2).lower(), m.group(2) if m.group(2).startswith("#") else None)
+            out += [(w, color) for w in m.group(3).split()]
+        pos = m.end()
+    out += [(w, None) for w in text[pos:].split()]
+    merged: list[tuple[str, str | None]] = []
+    for w, c in out:  # "*Dave*." -> "Dave." keeps the punctuation on the coloured word
+        if merged and re.fullmatch(r"[^\w\s]+", w):
+            merged[-1] = (merged[-1][0] + w, merged[-1][1])
+        else:
+            merged.append((w, c))
+    return merged
+
+
+def plain_text(text: str) -> str:
+    """Narration without colour markup, for the voice and transcripts."""
+    return " ".join(w for w, _ in script_tokens(text))
 
 
 def keywords(text: str, n: int = 3) -> str:
@@ -402,10 +436,10 @@ def _build(plan: dict[str, Any], job: Path, voice: str, tts: str, music: str | N
         n = f"{i + 1:02d}"
         print(f"Scene {n}/{len(plan['scenes'])}: {scene['text'][:60]}", flush=True)
         wav = work / f"voice-{n}.wav"
-        key = hashlib.sha1(f"{scene['text']}|{plan.get('voice')}|{tts}".encode()).hexdigest()[:10]
+        key = hashlib.sha1(f"{plain_text(scene['text'])}|{scene.get('voice') or plan.get('voice')}|{tts}".encode()).hexdigest()[:10]
         stamp = work / f"voice-{n}.key"
         if not wav.exists() or not stamp.exists() or stamp.read_text() != key:
-            synthesize(scene["text"], wav, plan.get("voice", ""), tts)
+            synthesize(plain_text(scene["text"]), wav, scene.get("voice") or plan.get("voice", ""), tts)
             stamp.write_text(key)
         dur = probe(wav)["duration"]
 
@@ -430,7 +464,7 @@ def _build(plan: dict[str, Any], job: Path, voice: str, tts: str, music: str | N
             text_segment(scene.get("headline") or _short(scene["text"], 6).upper(), dur, seg, accent, i)
         seg_files.append(seg)
         voice_files.append(wav)
-        transcript_segs.append({"start": round(t, 3), "end": round(t + dur, 3), "text": scene["text"]})
+        transcript_segs.append({"start": round(t, 3), "end": round(t + dur, 3), "text": plain_text(scene["text"])})
         t += dur
 
     # stitch picture and voice
@@ -490,5 +524,9 @@ def rebuild(job: Path, **kw: Any) -> Path:
     plan = read_json(job / "plan.json")
     if not plan:
         raise RuntimeError(f"{job.name} wasn't made with `clipsuite create` (no plan.json).")
-    return build(plan, job=job, voice=kw.pop("voice", "") or plan.get("voice", ""), **kw)
+    voice = kw.pop("voice", "") or plan.get("voice", "")
+    if plan.get("style") == "cartoon":
+        from . import cartoon
+        return cartoon.build(plan, job=job, voice=voice, tts=kw.get("tts", "auto"), music=kw.get("music"))
+    return build(plan, job=job, voice=voice, **kw)
 

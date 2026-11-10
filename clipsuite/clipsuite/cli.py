@@ -148,6 +148,7 @@ def cmd_create(a: argparse.Namespace) -> None:
     from . import create
     from .util import get_setting
 
+    cartoon = a.style == "cartoon"
     kw = {"tts": a.tts, "music": a.music, "preset": a.preset, "footage_dir": a.footage or ""}
     if a.rebuild:
         create.rebuild(_job(a.rebuild), voice=a.voice, **kw)
@@ -158,18 +159,29 @@ def cmd_create(a: argparse.Namespace) -> None:
             script = WORKSPACE / "_drafts" / script.name  # allow just the draft's file name
         if not script.exists():
             topic = a.topic or script.stem.replace("-", " ").replace("_", " ")
-            script.parent.mkdir(parents=True, exist_ok=True)
-            script.write_text(create.TEMPLATE.format(title=topic, query=create.keywords(topic)))
+            if cartoon:
+                from . import cartoon as cartoon_mod
+                cartoon_mod.write_template(topic, script)
+            else:
+                script.parent.mkdir(parents=True, exist_ok=True)
+                script.write_text(create.TEMPLATE.format(title=topic, query=create.keywords(topic)))
+            style = " --style cartoon" if cartoon else ""
             sys.exit(f"That script didn't exist, so I made a template there:\n  {script.resolve()}\n\n"
                      f"Fill it in, save, then run the same command again:\n  open -e '{script}'\n"
-                     f"  clipsuite create --script '{script}'")
+                     f"  clipsuite create{style} --script '{script}'")
         plan = create.parse_script(script.read_text(), default_title=a.topic or "")
         if "Write your hook here" in plan["scenes"][0]["text"]:
             sys.exit(f"{script} still has the template text. Replace it with your own script first:\n"
                      f"  open -e '{script}'")
+    elif a.topic and cartoon:
+        from . import cartoon as cartoon_mod
+        draft = cartoon_mod.write_template(a.topic)
+        print(f"Cartoon script template (an example episode you can edit):\n\n  open -e '{draft}'"
+              f"\n  clipsuite create --style cartoon --script '{draft}'")
+        return
     elif a.topic and (get_setting("anthropic_api_key") or os.environ.get("ANTHROPIC_AUTH_TOKEN")):
         print("Claude is writing the script...", flush=True)
-        plan = create.plan_with_claude(a.topic, a.seconds, a.style)
+        plan = create.plan_with_claude(a.topic, a.seconds, a.tone)
     elif a.topic:
         draft = create.write_template(a.topic)
         print(f"Free mode: write your script in this file, then run the command it shows.\n\n  open -e '{draft}'"
@@ -177,7 +189,29 @@ def cmd_create(a: argparse.Namespace) -> None:
         return
     else:
         sys.exit("Give a topic, --script FILE, or --rebuild JOB")
-    create.build(plan, voice=a.voice, **kw)
+    if cartoon:
+        from . import cartoon as cartoon_mod
+        cartoon_mod.build(plan, voice=a.voice, tts=a.tts, music=a.music)
+    else:
+        create.build(plan, voice=a.voice, **kw)
+
+
+def cmd_character(a: argparse.Namespace) -> None:
+    from . import characters
+
+    if a.action == "list":
+        found = characters.list_all()
+        print("Characters: " + (", ".join(found["characters"]) or "(none yet)"))
+        print("Backgrounds: " + (", ".join(found["backgrounds"]) or "(none added)") +
+              "   built in: bedroom, gym, plain")
+        return
+    if not a.name or not a.image:
+        sys.exit("Usage: clipsuite character add NAME IMAGE [--part left|right] [--keep-background]")
+    if a.kind == "background":
+        print("Saved", characters.add_background(a.name, Path(a.image)))
+    else:
+        out = characters.add_character(a.name, Path(a.image), a.part, a.keep_background)
+        print(f"Saved {out}\nUse it in a script with:  > show: {a.name}")
 
 
 def cmd_config(a: argparse.Namespace) -> None:
@@ -306,9 +340,21 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--music", help="background music file (auto-ducked under the voice)")
     p.add_argument("--footage", help="folder of your own b-roll clips to use (matched by file/folder names)")
     p.add_argument("--seconds", type=int, default=75, help="target length when Claude writes the script")
-    p.add_argument("--style", default="", help="tone notes for Claude, e.g. 'calm, educational'")
+    p.add_argument("--style", choices=["stock", "cartoon"], default="stock",
+                   help="stock: footage + headline cards; cartoon: your characters, story series look")
+    p.add_argument("--tone", default="", help="tone notes for Claude, e.g. 'calm, educational'")
     p.add_argument("--preset", choices=["bold", "clean", "boxed", "minimal"], default="bold")
     p.set_defaults(fn=cmd_create)
+
+    for kind in ("character", "background"):
+        p = sub.add_parser(kind, help=f"add your own {kind} art for `create --style cartoon`, or list them")
+        p.add_argument("action", choices=["add", "list"])
+        p.add_argument("name", nargs="?")
+        p.add_argument("image", nargs="?")
+        p.add_argument("--part", choices=["full", "left", "right"], default="full",
+                       help="take only the left or right half of the image (for side-by-side art)")
+        p.add_argument("--keep-background", action="store_true", help="don't cut the character out")
+        p.set_defaults(fn=cmd_character, kind=kind)
 
     p = sub.add_parser("config", help="save a setting, e.g. `clipsuite config pixabay_api_key KEY`")
     p.add_argument("name", choices=["pixabay_api_key", "footage_dir", "pexels_api_key"])
