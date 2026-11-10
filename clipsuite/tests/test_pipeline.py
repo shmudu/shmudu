@@ -466,9 +466,9 @@ def test_split_handles_borders_small_images_and_single_pictures(tmp_path):
 
     img = Image.new("RGB", (600, 400), "white")
     d = ImageDraw.Draw(img)
-    d.rectangle((0, 0, 296, 196), fill=(20, 15, 25))      # dark art, like a night bedroom
-    d.rectangle((0, 200, 296, 399), fill=(25, 25, 25))
-    d.rectangle((300, 0, 599, 399), fill=(60, 30, 30))
+    d.rectangle((0, 0, 294, 194), fill=(20, 15, 25))      # dark art, like a night bedroom
+    d.rectangle((0, 201, 294, 399), fill=(25, 25, 25))     # 6px white gutters, like a real collage
+    d.rectangle((301, 0, 599, 399), fill=(60, 30, 30))
     framed = ImageOps.expand(img, border=30, fill=(30, 30, 34)).resize((330, 230))  # screenshot, shrunk
     framed.save(tmp_path / "framed.jpg", quality=70)
     assert len(characters.split_panels(tmp_path / "framed.jpg", tmp_path / "a")) == 3
