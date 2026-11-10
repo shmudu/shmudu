@@ -144,6 +144,18 @@ class Handler(BaseHTTPRequestHandler):
                 threading.Thread(target=_safe(go), daemon=True).start()
                 return self._json({"ok": True, "note": "Downloading; the job appears in the list shortly."})
 
+            if path == "/api/create":  # {script, voice}
+                from . import create
+                body = self._body()
+                try:
+                    plan = create.parse_script(str(body.get("script", ""))[:20000])
+                except ValueError as e:
+                    return self._json({"error": str(e)}, 400)
+                voice = str(body.get("voice", ""))[:40]
+                threading.Thread(target=_safe(lambda: create.build(plan, voice=voice)), daemon=True).start()
+                return self._json({"ok": True, "note": f"Building \"{plan['title']}\" "
+                                   f"({len(plan['scenes'])} scenes). It appears in Jobs in a moment."})
+
             if path == "/api/upload":  # raw file body, ?name=
                 q = parse_qs(urlparse(self.path).query)
                 name = slugify(q.get("name", ["upload"])[0].rsplit(".", 1)[0]) + ".mp4"

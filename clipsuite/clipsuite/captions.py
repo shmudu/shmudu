@@ -125,3 +125,33 @@ def write(words: list[dict[str, Any]], out_dir: Path, style: dict[str, Any] | No
     ass.write_text(build_ass(words, width, height, style, title=title))
     srt.write_text(build_srt(words))
     return ass, srt
+
+
+def _hex_to_ass(color: str) -> str:
+    c = color.lstrip("#")
+    return f"&H00{c[4:6]}{c[2:4]}{c[0:2]}".upper() if len(c) == 6 else "&H0000E5FF"
+
+
+def build_headline_ass(headline: str, dur: float, width: int = 1080, height: int = 1920,
+                       accent: str = "#FFE500") -> str:
+    """Big centred headline card with a pop-in, an accent underline and a fade-out."""
+    acc = _hex_to_ass(accent)
+    size = 118 if len(headline) <= 22 else 96 if len(headline) <= 40 else 80
+    bar_y = int(height * 0.54)
+    return f"""[Script Info]
+ScriptType: v4.00+
+PlayResX: {width}
+PlayResY: {height}
+WrapStyle: 0
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Head,Montserrat Black,{size},&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,4,3,5,90,90,0,1
+Style: Bar,Arial,10,{acc},{acc},{acc},{acc},0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,{_ass_ts(0.05)},{_ass_ts(dur)},Bar,,0,0,0,,{{\\an7\\pos({width // 2 - 150},{bar_y})\\fad(200,200)\\1c{acc}\\bord0\\shad0\\p1}}m 0 0 l 300 0 300 16 0 16{{\\p0}}
+Dialogue: 1,{_ass_ts(0.1)},{_ass_ts(dur)},Head,,0,0,0,,{{\\an5\\pos({width // 2},{int(height * 0.44)})\\fad(150,200)\\fscx80\\fscy80\\t(0,280,\\fscx100\\fscy100)}}{_esc(headline)}
+"""

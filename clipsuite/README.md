@@ -107,6 +107,40 @@ exports/resolve.fcpxml  exports/chatcut.zip  exports/wan2gp/prompts.txt
 | `words_per_line`, `uppercase`, `font`, `size` | caption overrides |
 | `show_title`, `captions` | `true`/`false` |
 
+## Make a video from a script (`clipsuite create`)
+
+Faceless explainer-style shorts, free: you write the script, ClipSuite does the rest.
+
+1. **Voice** – [Kokoro](https://huggingface.co/hexgrad/Kokoro-82M), a free, natural-sounding voice
+   that runs on your Mac (first use downloads ~330 MB). Falls back to macOS `say`.
+2. **Visuals** – free [Pexels](https://www.pexels.com/api/) stock video per scene, or an animated
+   headline card. Without a Pexels key every scene becomes a headline card.
+3. **Captions & title** – the normal ClipSuite render (Whisper word timings, animated captions).
+
+```bash
+clipsuite config pexels_api_key YOUR_KEY        # once; free key from pexels.com/api
+clipsuite create "3 money habits"               # writes a script template and tells you where
+clipsuite create --script my-script.txt --voice am_michael --music ~/Music/lofi.mp3
+```
+
+Script format (blank line between scenes, `>` lines are directions):
+
+```
+# 3 money habits that changed my life
+Most people never save a dollar. Here's what finally worked for me.
+> stock: piggy bank coins
+
+Habit one: pay yourself first, the day your paycheck lands.
+> text: PAY YOURSELF FIRST
+```
+
+About 170–230 words gives 65–90 seconds (TikTok's Creator Rewards needs 1 minute+).
+Voices: `af_heart`, `af_bella`, `am_michael`, `am_fenrir` (US), `bf_emma`, `bm_george` (UK).
+To change a finished video, edit `workspace/<job>/plan.json` (text, `kind`, `visual`, `headline`)
+and run `clipsuite create --rebuild <job>`; unchanged voice lines are reused. Stock credits are in
+`credits.txt`. With an `ANTHROPIC_API_KEY`, `clipsuite create "topic"` has Claude write the script.
+The phone editor has a **Create a video from a script** box too.
+
 ## Editing in DaVinci Resolve
 
 1. `clipsuite resolve latest`

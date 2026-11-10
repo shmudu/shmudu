@@ -10,8 +10,8 @@ requires-python = ">=3.10"
 dependencies = ["yt-dlp"]
 
 [project.optional-dependencies]
-mac = ["mlx-whisper", "anthropic", "opencv-python-headless"]
-cpu = ["faster-whisper", "anthropic", "opencv-python-headless"]
+mac = ["mlx-whisper", "anthropic", "opencv-python-headless", "kokoro>=0.9.4", "soundfile"]
+cpu = ["faster-whisper", "anthropic", "opencv-python-headless", "kokoro>=0.9.4", "soundfile"]
 dev = ["pytest"]
 
 [project.scripts]

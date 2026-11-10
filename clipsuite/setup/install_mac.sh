@@ -20,7 +20,7 @@ fi
 # 2. Command-line tools: yt-dlp, Node 22+, Python, and FFmpeg WITH libass (burned-in captions).
 #    Homebrew's standard ffmpeg formula dropped libass, so use the official FFmpeg tap instead.
 say "Installing yt-dlp, node, python"
-brew install yt-dlp node python@3.12
+brew install yt-dlp node python@3.12 espeak-ng   # espeak-ng helps the Kokoro voice with rare words
 if ! ffmpeg -hide_banner -filters 2>/dev/null | awk '{print $2}' | grep -qx ass; then
   say "Installing FFmpeg with caption support (homebrew-ffmpeg tap; may build for a while)"
   brew uninstall --ignore-dependencies ffmpeg 2>/dev/null || true
@@ -60,5 +60,7 @@ Manual installs (apps, not scriptable):
   * ChatCut: https://chatcut.io (web app or desktop app)
   * Wan2GP: needs an NVIDIA GPU for real speed. On a Mac, try it via Pinokio (https://pinokio.co,
     experimental Apple Silicon support) or run it on a cloud GPU. See README "Wan2GP".
-Optional: export ANTHROPIC_API_KEY=... to let Claude pick and title your clips.
+Prompt-to-video (clipsuite create): get a free Pexels key at https://www.pexels.com/api/ then run
+  clipsuite config pexels_api_key YOUR_KEY
+Optional: export ANTHROPIC_API_KEY=... to let Claude pick clips and write scripts for you.
 EOF

@@ -73,7 +73,32 @@ async function home() {
       <input type="file" id="file" accept="video/*" hidden>
       <div class="muted" id="msg" style="margin-top:8px"></div>
     </div>
+    <div class="card"><details id="createBox"><summary><b style="color:var(--text)">✨ Create a video from a script</b></summary>
+      <div class="muted" style="margin-top:8px">First line <code># Title</code>. Blank line between scenes.
+        Under a scene: <code>&gt; stock: search words</code> for stock footage or <code>&gt; text: HEADLINE</code> for a title card.
+        ~170–230 words ≈ 65–90s.</div>
+      <textarea id="script" rows="10" style="margin-top:8px" placeholder="# 3 money habits that changed my life
+Most people never save a dollar. Here's what finally worked for me.
+&gt; stock: piggy bank coins
+
+Habit one: pay yourself first.
+&gt; text: PAY YOURSELF FIRST"></textarea>
+      <label>Voice</label>
+      <select id="voice"><option value="af_heart">Heart (US female)</option><option value="af_bella">Bella (US female)</option>
+        <option value="am_michael">Michael (US male)</option><option value="am_fenrir">Fenrir (US male)</option>
+        <option value="bf_emma">Emma (UK female)</option><option value="bm_george">George (UK male)</option></select>
+      <button id="create" style="margin-top:10px;width:100%">Create video</button>
+      <div class="muted" id="cmsg" style="margin-top:8px"></div></details></div>
     <div class="card"><b>Jobs</b><div id="jobs" class="muted">Loading…</div></div>`;
+  try { const d = localStorage.getItem("cs_script"); if (d) document.getElementById("script").value = d; } catch {}
+  document.getElementById("script").oninput = e => { try { localStorage.setItem("cs_script", e.target.value); } catch {} };
+  document.getElementById("create").onclick = async () => {
+    const m = document.getElementById("cmsg");
+    try { const r = await api("/api/create", { method: "POST", body: JSON.stringify({
+        script: document.getElementById("script").value, voice: document.getElementById("voice").value }) });
+      m.textContent = r.note; setTimeout(loadJobs, 3000);
+    } catch (e) { m.textContent = e.message; }
+  };
   const opts = () => { const [a, b] = document.getElementById("len").value.split("-");
     return { count: +document.getElementById("count").value, min_len: +a, max_len: +b,
              guidance: document.getElementById("guidance").value, style: { preset: document.getElementById("preset").value } }; };

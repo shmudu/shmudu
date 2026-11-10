@@ -181,3 +181,93 @@ def test_ffmpeg_filter_detection():
 
     assert ffmpeg_has_filter("scale")
     assert not ffmpeg_has_filter("definitely_not_a_filter")
+
+
+SCRIPT = """# 3 money habits that changed my life
+Most people never save a dollar. Here's what finally worked for me.
+> stock: piggy bank coins
+
+Habit one: pay yourself first, the day your paycheck lands.
+> text: PAY YOURSELF FIRST
+
+Habit two: automate it, so willpower never enters the picture.
+
+# Tip: this line is ignored
+"""
+
+
+def test_parse_script():
+    from clipsuite.create import parse_script
+
+    plan = parse_script(SCRIPT)
+    assert plan["title"] == "3 money habits that changed my life"
+    kinds = [s["kind"] for s in plan["scenes"]]
+    assert kinds == ["stock", "text", "stock"]
+    assert plan["scenes"][0]["visual"] == "piggy bank coins"
+    assert plan["scenes"][1]["headline"] == "PAY YOURSELF FIRST"
+    assert plan["scenes"][2]["visual"]  # auto keywords
+    with pytest.raises(ValueError):
+        parse_script("# only a title")
+
+
+def _fake_tts(text, out_wav, voice="", backend="auto"):
+    dur = max(1.0, len(text.split()) / 2.6)
+    subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", f"sine=frequency=220:duration={dur}",
+                    "-ar", "48000", "-ac", "1", str(out_wav)], check=True, capture_output=True)
+    return out_wav
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg"), reason="ffmpeg not installed")
+def test_create_builds_a_rendered_job(ws, tmp_path, monkeypatch):
+    from clipsuite import create, util
+
+    importlib.reload(create)
+    stock = tmp_path / "stock.mp4"
+    subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc2=size=720x1280:rate=25:duration=2",
+                    "-pix_fmt", "yuv420p", str(stock)], check=True, capture_output=True)
+    monkeypatch.setattr(create, "synthesize", _fake_tts)
+    monkeypatch.setattr(create, "get_setting", lambda name, default="": "fake-key")
+    monkeypatch.setattr(create, "pexels_pick",
+                        lambda q, key, used: {"id": len(used), "link": "x", "credit": "Ann", "page": "p"})
+    monkeypatch.setattr(create, "fetch", lambda url, cache: stock)
+    monkeypatch.setattr(create.transcribe, "available_backends", lambda: [])
+
+    job = create.build(create.parse_script(SCRIPT))
+    clip = util.read_json(job / "clips.json")[0]
+    final = job / "clips" / clip["id"] / "final.mp4"
+    info = util.probe(final)
+    assert (info["width"], info["height"]) == (1080, 1920) and info["has_audio"]
+    assert abs(info["duration"] - clip["end"]) < 0.3
+    assert len(util.read_json(job / "transcript.json")["segments"]) == 3
+    assert "Ann" in (job / "credits.txt").read_text()
+
+    # edit the plan and rebuild in place: voice cache is reused, scenes change
+    plan = util.read_json(job / "plan.json")
+    plan["scenes"] = plan["scenes"][:2]
+    util.write_json(job / "plan.json", plan)
+    create.rebuild(job)
+    assert len(util.read_json(job / "transcript.json")["segments"]) == 2
+
+
+def test_pexels_pick_prefers_portrait(monkeypatch):
+    import io
+    from clipsuite import create
+
+    payload = {"videos": [{"id": 1, "url": "u1", "user": {"name": "Bo"}, "video_files": [
+        {"file_type": "video/mp4", "width": 1920, "height": 1080, "link": "landscape"},
+        {"file_type": "video/mp4", "width": 1080, "height": 1920, "link": "portrait-1080"},
+        {"file_type": "video/mp4", "width": 540, "height": 960, "link": "portrait-540"}]}]}
+
+    class Resp(io.BytesIO):
+        def __enter__(self): return self
+        def __exit__(self, *a): pass
+
+    seen = {}
+    def fake_open(req, timeout=0):
+        seen["auth"] = req.headers.get("Authorization")
+        return Resp(json.dumps(payload).encode())
+    monkeypatch.setattr(create.urllib.request, "urlopen", fake_open)
+    used: set = set()
+    pick = create.pexels_pick("coffee", "KEY", used)
+    assert pick["link"] == "portrait-1080" and seen["auth"] == "KEY" and used == {1}
+    assert create.pexels_pick("coffee", "KEY", used) is None  # no repeats

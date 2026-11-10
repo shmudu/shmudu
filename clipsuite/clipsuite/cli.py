@@ -1,6 +1,7 @@
 """clipsuite command line.
 
   clipsuite auto <url-or-file>           everything: download, transcribe, pick, render, exports
+  clipsuite create --script my-script.txt make a faceless video from your own script
   clipsuite serve                         phone-friendly web editor on your Wi-Fi
   clipsuite doctor                        check which tools are installed
 Run `clipsuite <command> -h` for details.
@@ -10,11 +11,12 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import os
 import shutil
 import sys
 from pathlib import Path
 
-from .util import WORKSPACE, ToolMissing, ffmpeg_has_filter, job_dir, list_jobs, read_json
+from .util import WORKSPACE, ToolMissing, ffmpeg_has_filter, get_setting, job_dir, list_jobs, read_json
 
 
 def _job(name: str) -> Path:
@@ -27,6 +29,11 @@ def _job(name: str) -> Path:
     if not d.exists():
         sys.exit(f"No job named {name!r} in {WORKSPACE}")
     return d
+
+
+def _tts() -> list[str]:
+    from .create import tts_backends
+    return tts_backends()
 
 
 def _opencv_ok() -> bool:
@@ -52,6 +59,9 @@ def cmd_doctor(_a: argparse.Namespace) -> None:
         ("whisper backend", bool(available_backends()), "pip install mlx-whisper  (Apple Silicon)"),
         ("node/npx (Remotion, HyperFrames)", bool(shutil.which("npx")), "brew install node"),
         ("anthropic SDK (Claude clip picker)", bool(importlib.util.find_spec("anthropic")), "pip install anthropic"),
+        ("voice for `create` (Kokoro / say)", bool(_tts()), "pip install 'kokoro>=0.9.4' soundfile"),
+        ("Pexels key for `create` stock footage", bool(get_setting("pexels_api_key")),
+         "free key at pexels.com/api, then: clipsuite config pexels_api_key KEY"),
         ("opencv (face-tracked crop)", _opencv_ok(),
          "pip uninstall -y opencv-python opencv-python-headless opencv-contrib-python && "
          "pip install --force-reinstall opencv-python-headless"),
@@ -126,6 +136,38 @@ def cmd_broll(a: argparse.Namespace) -> None:
     else:
         c = wan2gp.attach(_job(a.job), a.clip, [Path(f) for f in a.files], a.at, a.duration)
         print(f"{len(c['broll'])} b-roll inserts on {c['id']}. Re-render: clipsuite render {a.job} --only {a.clip}")
+
+
+def cmd_create(a: argparse.Namespace) -> None:
+    from . import create
+    from .util import get_setting
+
+    kw = {"tts": a.tts, "music": a.music, "preset": a.preset}
+    if a.rebuild:
+        create.rebuild(_job(a.rebuild), voice=a.voice, **kw)
+        return
+    if a.script:
+        plan = create.parse_script(Path(a.script).expanduser().read_text(), default_title=a.topic or "")
+    elif a.topic and (get_setting("anthropic_api_key") or os.environ.get("ANTHROPIC_AUTH_TOKEN")):
+        print("Claude is writing the script...", flush=True)
+        plan = create.plan_with_claude(a.topic, a.seconds, a.style)
+    elif a.topic:
+        draft = create.write_template(a.topic)
+        print(f"Free mode: write your script in this file, then run the command it shows.\n\n  open -e '{draft}'"
+              f"\n  clipsuite create --script '{draft}'\n\n(Or set ANTHROPIC_API_KEY to have Claude write it.)")
+        return
+    else:
+        sys.exit("Give a topic, --script FILE, or --rebuild JOB")
+    create.build(plan, voice=a.voice, **kw)
+
+
+def cmd_config(a: argparse.Namespace) -> None:
+    from .util import CONFIG_FILE, set_setting
+
+    if a.value is None:
+        print(f"{a.name} = {'(set)' if get_setting(a.name) else '(not set)'}   [{CONFIG_FILE}]")
+    else:
+        print("Saved to", set_setting(a.name, a.value))
 
 
 def cmd_serve(a: argparse.Namespace) -> None:
@@ -229,6 +271,23 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--at", type=float, nargs="*", help="seconds into the clip for each file")
     p.add_argument("--duration", type=float, default=2.5)
     p.set_defaults(fn=cmd_broll)
+
+    p = sub.add_parser("create", help="make a faceless video from a script (free) or a topic (Claude)")
+    p.add_argument("topic", nargs="?", help="what the video is about (Claude writes it if you have a key)")
+    p.add_argument("--script", help="text file with your script (see `clipsuite create -h` docs in README)")
+    p.add_argument("--rebuild", metavar="JOB", help="rebuild a created job after editing its plan.json")
+    p.add_argument("--voice", default="", help="Kokoro voice, e.g. af_heart, am_michael, bf_emma (or a macOS voice)")
+    p.add_argument("--tts", default="auto", choices=["auto", "kokoro", "say", "espeak"])
+    p.add_argument("--music", help="background music file (auto-ducked under the voice)")
+    p.add_argument("--seconds", type=int, default=75, help="target length when Claude writes the script")
+    p.add_argument("--style", default="", help="tone notes for Claude, e.g. 'calm, educational'")
+    p.add_argument("--preset", choices=["bold", "clean", "boxed", "minimal"], default="bold")
+    p.set_defaults(fn=cmd_create)
+
+    p = sub.add_parser("config", help="save a setting, e.g. `clipsuite config pexels_api_key KEY`")
+    p.add_argument("name", choices=["pexels_api_key"])
+    p.add_argument("value", nargs="?")
+    p.set_defaults(fn=cmd_config)
 
     p = sub.add_parser("serve", help="web editor you can open from your phone")
     p.add_argument("--host", default="0.0.0.0")

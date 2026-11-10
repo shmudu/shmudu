@@ -41,6 +41,25 @@ def ffmpeg_has_filter(name: str) -> bool:
     return any(line.split()[1:2] == [name] for line in out.splitlines() if line.strip())
 
 
+CONFIG_FILE = Path(os.environ.get("CLIPSUITE_CONFIG", Path.home() / ".config" / "clipsuite" / "config.json"))
+
+
+def get_setting(name: str, default: str = "") -> str:
+    """Environment variable (upper-case) wins, then ~/.config/clipsuite/config.json."""
+    return os.environ.get(name.upper()) or (read_json(CONFIG_FILE, {}) or {}).get(name, default)
+
+
+def set_setting(name: str, value: str) -> Path:
+    data = read_json(CONFIG_FILE, {}) or {}
+    data[name] = value
+    write_json(CONFIG_FILE, data)
+    try:
+        CONFIG_FILE.chmod(0o600)  # may hold API keys
+    except OSError:
+        pass
+    return CONFIG_FILE
+
+
 def run(cmd: Iterable[str], cwd: Path | None = None, quiet: bool = False) -> subprocess.CompletedProcess:
     cmd = [str(c) for c in cmd]
     if not quiet:
