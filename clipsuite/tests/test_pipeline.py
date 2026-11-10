@@ -318,3 +318,16 @@ def test_local_footage_matches_names(tmp_path, monkeypatch):
     assert create.local_pick("piggy bank", tmp_path, used)["path"].name == "random.mp4"
     assert create.local_pick("piggy bank", tmp_path, used)["path"].name == "piggy-bank.mp4"
     assert create.local_pick("volcano", tmp_path, used) is None
+
+
+def test_create_missing_script_writes_template(ws, tmp_path):
+    from clipsuite import cli
+
+    target = tmp_path / "drafts" / "3-money-habits.txt"
+    with pytest.raises(SystemExit) as e:
+        cli.main(["create", "--script", str(target)])
+    assert "made a template" in str(e.value) and target.exists()
+    assert "# 3 money habits" in target.read_text()
+    with pytest.raises(SystemExit) as e:  # untouched template is refused, not rendered
+        cli.main(["create", "--script", str(target)])
+    assert "still has the template text" in str(e.value)

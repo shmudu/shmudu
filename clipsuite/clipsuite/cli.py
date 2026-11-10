@@ -153,7 +153,20 @@ def cmd_create(a: argparse.Namespace) -> None:
         create.rebuild(_job(a.rebuild), voice=a.voice, **kw)
         return
     if a.script:
-        plan = create.parse_script(Path(a.script).expanduser().read_text(), default_title=a.topic or "")
+        script = Path(a.script).expanduser()
+        if not script.exists() and (WORKSPACE / "_drafts" / script.name).exists():
+            script = WORKSPACE / "_drafts" / script.name  # allow just the draft's file name
+        if not script.exists():
+            topic = a.topic or script.stem.replace("-", " ").replace("_", " ")
+            script.parent.mkdir(parents=True, exist_ok=True)
+            script.write_text(create.TEMPLATE.format(title=topic, query=create.keywords(topic)))
+            sys.exit(f"That script didn't exist, so I made a template there:\n  {script.resolve()}\n\n"
+                     f"Fill it in, save, then run the same command again:\n  open -e '{script}'\n"
+                     f"  clipsuite create --script '{script}'")
+        plan = create.parse_script(script.read_text(), default_title=a.topic or "")
+        if "Write your hook here" in plan["scenes"][0]["text"]:
+            sys.exit(f"{script} still has the template text. Replace it with your own script first:\n"
+                     f"  open -e '{script}'")
     elif a.topic and (get_setting("anthropic_api_key") or os.environ.get("ANTHROPIC_AUTH_TOKEN")):
         print("Claude is writing the script...", flush=True)
         plan = create.plan_with_claude(a.topic, a.seconds, a.style)
