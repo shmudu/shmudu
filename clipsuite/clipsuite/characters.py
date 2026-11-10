@@ -57,6 +57,8 @@ def cut_out(src: Path, part: str = "full", tolerance: int = 38) -> "Image.Image"
     else:
         import numpy as np
 
+        _require_plain_border(np.asarray(img.convert("RGB")).astype(int))
+
         rgb = img.convert("RGB")
         key = (255, 0, 255)
         seeds = [(x, y) for x in range(0, w, 24) for y in (0, h - 1)] + \
@@ -77,6 +79,25 @@ def cut_out(src: Path, part: str = "full", tolerance: int = 38) -> "Image.Image"
         pad = 4
         out = out.crop((max(0, bbox[0] - pad), max(0, bbox[1] - pad), min(w, bbox[2] + pad), min(h, bbox[3] + pad)))
     return out
+
+
+class NotPlainBackground(ValueError):
+    pass
+
+
+def _require_plain_border(arr) -> None:
+    """Refuse art that isn't on a plain background (e.g. a screenshot of a finished video frame):
+    cutting it out would keep the whole scene as part of the character."""
+    import numpy as np
+
+    border = np.concatenate([arr[0], arr[-1], arr[:, 0], arr[:, -1]])
+    median = np.median(border, axis=0)
+    plain = (np.abs(border - median).sum(axis=1) < 12).mean()  # real art: 0.8+; rendered frames: <0.2
+    if plain < 0.6:
+        raise NotPlainBackground(
+            "This image doesn't have a plain background around the character, so it can't be cut out "
+            f"cleanly (only {plain:.0%} of the edge is one colour). Use the original art on a white or "
+            "single-colour background, not a screenshot of a scene. Add --keep-background to use it as is.")
 
 
 def _dilate(mask, radius: int):

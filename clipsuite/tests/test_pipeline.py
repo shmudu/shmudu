@@ -474,3 +474,22 @@ def test_split_handles_borders_small_images_and_single_pictures(tmp_path):
     assert len(characters.split_panels(tmp_path / "framed.jpg", tmp_path / "a")) == 3
     Image.new("RGB", (500, 300), (15, 10, 20)).save(tmp_path / "dark.png")          # one dark picture
     assert len(characters.split_panels(tmp_path / "dark.png", tmp_path / "b")) == 1
+
+
+def test_character_add_refuses_screenshots_of_scenes(tmp_path):
+    from PIL import Image, ImageDraw
+    from clipsuite import characters
+
+    scene = Image.new("RGB", (400, 600))
+    d = ImageDraw.Draw(scene)
+    for y in range(600):  # gradient wall + floor, like a rendered frame
+        d.line((0, y, 399, y), fill=(18 + y // 20, 12 + y // 30, 34 + y // 15))
+    d.rectangle((150, 200, 250, 600), fill=(220, 200, 180))
+    scene.save(tmp_path / "frame.png")
+    with pytest.raises(characters.NotPlainBackground):
+        characters.cut_out(tmp_path / "frame.png")
+    # real art: white background, figure touching the bottom edge, slight JPEG noise
+    art = Image.new("RGB", (400, 600), (252, 252, 250))
+    ImageDraw.Draw(art).rectangle((120, 100, 280, 599), fill=(40, 40, 50))
+    art.save(tmp_path / "art.jpg", quality=80)
+    assert characters.cut_out(tmp_path / "art.jpg").size[1] > 400

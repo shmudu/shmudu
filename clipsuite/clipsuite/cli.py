@@ -234,7 +234,10 @@ def cmd_character(a: argparse.Namespace) -> None:
     if a.kind == "background":
         print("Saved", characters.add_background(a.name, Path(a.image)))
     else:
-        out = characters.add_character(a.name, Path(a.image), a.part, a.keep_background)
+        try:
+            out = characters.add_character(a.name, Path(a.image), a.part, a.keep_background)
+        except characters.NotPlainBackground as e:
+            sys.exit(str(e))
         print(f"Saved {out}\nUse it in a script with:  > show: {a.name}")
 
 
