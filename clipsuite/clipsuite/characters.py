@@ -159,34 +159,49 @@ def add_background(name: str, src: Path) -> Path:
     return dest
 
 
-def split_panels(src: Path, out_dir: Path | None = None, min_gap: int = 3) -> list[tuple[Path, tuple[int, int, int, int]]]:
-    """Cut a collage into its panels along full-width/height white (or black) gutters."""
+def split_panels(src: Path, out_dir: Path | None = None) -> list[tuple[Path, tuple[int, int, int, int]]]:
+    """Cut a collage into its panels along white gutters, ignoring a plain outer border
+    (screenshots) and tolerating soft, thin gutters (resized or compressed images)."""
     import numpy as np
     Image, _ = _pil()
 
     img = Image.open(src).convert("RGB")
     arr = np.asarray(img).astype(int)
-    gutter = (arr.min(axis=2) > 225) | (arr.max(axis=2) < 25)
+    H, W = arr.shape[:2]
+    gutter = arr.min(axis=2) > 200  # white gutters only: dark art has near-black rows of its own
+
+    # 1. strip a uniform outer border of any colour (e.g. a dark screenshot frame)
+    corner = arr[0, 0]
+    plain = np.abs(arr - corner).max(axis=2) < 18
+    rows_plain, cols_plain = plain.mean(axis=1) > 0.98, plain.mean(axis=0) > 0.98
+    top = next((i for i in range(H) if not rows_plain[i]), 0)
+    bottom = next((i for i in range(H - 1, -1, -1) if not rows_plain[i]), H - 1) + 1
+    left = next((i for i in range(W) if not cols_plain[i]), 0)
+    right = next((i for i in range(W - 1, -1, -1) if not cols_plain[i]), W - 1) + 1
+    if bottom - top < H * 0.3 or right - left < W * 0.3:  # the "border" was most of the image
+        top, bottom, left, right = 0, H, 0, W
+
+    min_panel = max(40, min(H, W) // 12)
 
     def runs(flags):
-        """(start, end) spans of non-gutter lines, splitting on gutters at least min_gap thick."""
+        """(start, end) spans of non-gutter lines; any gutter run of 2+ lines splits."""
         spans, start, gap = [], None, 0
-        for i, g in enumerate(list(flags) + [True] * min_gap):
+        for i, g in enumerate(list(flags) + [True, True]):
             if g:
                 gap += 1
-                if start is not None and gap >= min_gap:
+                if start is not None and gap >= 2:
                     spans.append((start, i - gap + 1))
                     start = None
             else:
                 if start is None:
                     start = i
                 gap = 0
-        return [(a, b) for a, b in spans if b - a > 40]
+        return [(a, b) for a, b in spans if b - a >= min_panel]
 
     def split(x0, y0, x1, y1, depth=0):
         region = gutter[y0:y1, x0:x1]
-        cols = runs(region.mean(axis=0) > 0.97)
-        rows = runs(region.mean(axis=1) > 0.97)
+        cols = runs(region.mean(axis=0) > 0.9)
+        rows = runs(region.mean(axis=1) > 0.9)
         if depth < 4 and len(cols) > 1:
             return [b for a, c in cols for b in split(x0 + a, y0, x0 + c, y1, depth + 1)]
         if depth < 4 and len(rows) > 1:
@@ -195,10 +210,12 @@ def split_panels(src: Path, out_dir: Path | None = None, min_gap: int = 3) -> li
             return [(x0 + cols[0][0], y0 + rows[0][0], x0 + cols[-1][1], y0 + rows[-1][1])]
         return [(x0, y0, x1, y1)]
 
-    boxes = split(0, 0, img.width, img.height)
+    boxes = split(left, top, right, bottom)
     out_dir = out_dir or util.WORKSPACE / "_panels"
     out_dir.mkdir(parents=True, exist_ok=True)
     stem = Path(src).stem
+    for old in out_dir.glob(f"{stem}-*.png"):  # don't leave panels from an earlier split behind
+        old.unlink()
     results = []
     for i, box in enumerate(boxes, 1):
         dest = out_dir / f"{stem}-{i}.png"

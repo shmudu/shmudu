@@ -199,7 +199,14 @@ def cmd_create(a: argparse.Namespace) -> None:
 def cmd_split(a: argparse.Namespace) -> None:
     from . import characters
 
-    results = characters.split_panels(Path(a.image).expanduser())
+    image = Path(a.image).expanduser()
+    if not image.exists():
+        sys.exit(f"No such file: {image}")
+    results = characters.split_panels(image)
+    if len(results) == 1:
+        print("Found only one panel: no white gaps between pictures were detected.\n"
+              "If it is a collage, export it at full size (not a screenshot) and try again, or crop the\n"
+              "pictures apart in Preview (Tools > Crop) and add each one directly.")
     for path, (x0, y0, x1, y1) in results:
         shape = "tall" if (y1 - y0) > (x1 - x0) else "wide"
         print(f"  {path}   {x1 - x0}x{y1 - y0} {shape}, at x={x0} y={y0}")
@@ -218,6 +225,12 @@ def cmd_character(a: argparse.Namespace) -> None:
         return
     if not a.name or not a.image:
         sys.exit("Usage: clipsuite character add NAME IMAGE [--part left|right] [--keep-background]")
+    if not Path(a.image).expanduser().exists():
+        hint = ""
+        panels = sorted((WORKSPACE / "_panels").glob("*.png")) if (WORKSPACE / "_panels").exists() else []
+        if panels:
+            hint = "\nPanels that do exist:\n" + "\n".join(f"  {p}" for p in panels)
+        sys.exit(f"No such file: {a.image}{hint}")
     if a.kind == "background":
         print("Saved", characters.add_background(a.name, Path(a.image)))
     else:
