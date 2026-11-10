@@ -422,3 +422,39 @@ def test_cartoon_build_pipeline(ws, tmp_path, monkeypatch):
     assert (job / "clips" / clip["id"] / "final.mp4").exists()
     assert util.read_json(job / "job.json")["status"] == "done"
     assert util.read_json(job / "plan.json")["style"] == "cartoon"
+
+
+def test_split_panels_and_empty_cast(tmp_path):
+    from PIL import Image, ImageDraw
+    from clipsuite import cartoon, characters
+
+    img = Image.new("RGB", (600, 400), "white")
+    d = ImageDraw.Draw(img)
+    d.rectangle((0, 0, 294, 194), fill=(90, 40, 120))     # top-left
+    d.rectangle((0, 201, 294, 399), fill=(40, 90, 60))    # bottom-left
+    d.rectangle((301, 0, 599, 399), fill=(120, 60, 40))   # right, full height
+    src = tmp_path / "collage.png"
+    img.save(src)
+    boxes = [box for _, box in characters.split_panels(src, tmp_path / "out")]
+    assert boxes == [(0, 0, 295, 195), (0, 201, 295, 400), (301, 0, 600, 400)]
+    assert cartoon.parse_cast("none") == []
+
+
+def test_cut_out_clears_specks_at_the_edge_and_white_halo(tmp_path):
+    from PIL import Image, ImageDraw
+    from clipsuite import characters
+
+    img = Image.new("RGB", (400, 600), "white")
+    d = ImageDraw.Draw(img)
+    d.ellipse((100, 60, 300, 260), fill=(60, 40, 30))        # head (dark hair)
+    d.rectangle((195, 62, 205, 72), fill="white")            # small speck between strands, at the edge
+    d.rectangle((170, 150, 180, 160), fill="white")          # eye-white deep inside: keep
+    d.ellipse((98, 58, 302, 262), outline=(200, 200, 200))   # light anti-aliased ring
+    src = tmp_path / "head.png"
+    img.save(src)
+    out = characters.cut_out(src)
+    a = out.getchannel("A")
+    ox, oy = 98 - 4, 58 - 4
+    assert a.getpixel((200 - ox, 67 - oy)) == 0      # edge speck cleared
+    assert a.getpixel((175 - ox, 155 - oy)) == 255   # inner white kept
+    assert a.getpixel((98 - ox, 160 - oy)) < 128     # light halo faded

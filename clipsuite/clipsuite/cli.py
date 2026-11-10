@@ -196,6 +196,17 @@ def cmd_create(a: argparse.Namespace) -> None:
         create.build(plan, voice=a.voice, **kw)
 
 
+def cmd_split(a: argparse.Namespace) -> None:
+    from . import characters
+
+    results = characters.split_panels(Path(a.image).expanduser())
+    for path, (x0, y0, x1, y1) in results:
+        shape = "tall" if (y1 - y0) > (x1 - x0) else "wide"
+        print(f"  {path}   {x1 - x0}x{y1 - y0} {shape}, at x={x0} y={y0}")
+    print("\nOpen them with:  open " + " ".join(f"'{p}'" for p, _ in results) +
+          "\nThen e.g.:  clipsuite background add bedroom <panel>.png")
+
+
 def cmd_character(a: argparse.Namespace) -> None:
     from . import characters
 
@@ -355,6 +366,10 @@ def main(argv: list[str] | None = None) -> None:
                        help="take only the left or right half of the image (for side-by-side art)")
         p.add_argument("--keep-background", action="store_true", help="don't cut the character out")
         p.set_defaults(fn=cmd_character, kind=kind)
+
+    p = sub.add_parser("split", help="cut a multi-panel collage into separate images")
+    p.add_argument("image")
+    p.set_defaults(fn=cmd_split)
 
     p = sub.add_parser("config", help="save a setting, e.g. `clipsuite config pixabay_api_key KEY`")
     p.add_argument("name", choices=["pixabay_api_key", "footage_dir", "pexels_api_key"])

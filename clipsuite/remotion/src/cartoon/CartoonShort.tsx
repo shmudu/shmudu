@@ -79,11 +79,21 @@ const toLines = (words: CWord[], perLine: number): CWord[][] => {
 
 // ---------------------------------------------------------------- pieces
 
-const Background: React.FC<{ name: string }> = ({ name }) => {
+const Background: React.FC<{ name: string; sceneStart: number; sceneEnd: number }> = ({ name, sceneStart, sceneEnd }) => {
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
   const Builtin = BUILT_IN[name];
   if (Builtin) return <Builtin />;
   if (name) {
-    return <Img src={staticFile(name)} style={{ position: "absolute", inset: 0, width: W, height: H, objectFit: "cover" }} />;
+    // slow pan + push-in, so wide art shows more of the room and stills feel cinematic
+    const p = interpolate(frame / fps, [sceneStart, Math.max(sceneStart + 0.1, sceneEnd)], [0, 1], {
+      extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+    const dir = Math.round(sceneStart * 10) % 2 === 0 ? 1 : -1;
+    return (
+      <Img src={staticFile(name)} style={{ position: "absolute", inset: 0, width: W, height: H, objectFit: "cover",
+        objectPosition: `${50 + dir * interpolate(p, [0, 1], [-18, 18])}% 50%`,
+        transform: `scale(${interpolate(p, [0, 1], [1.02, 1.1])})` }} />
+    );
   }
   return <BUILT_IN.plain />;
 };
@@ -272,7 +282,7 @@ export const CartoonShort: React.FC<CartoonProps> = (props) => {
         <VoteCard vote={scene.vote} cast={scene.cast} sceneStart={scene.start} />
       ) : (
         <AbsoluteFill style={{ transform: `scale(${punch})` }}>
-          <Background name={scene.background} />
+          <Background name={scene.background} sceneStart={scene.start} sceneEnd={scene.end} />
           {scene.cast.map((c, i) => (
             <Character key={`${c.name}-${i}`} c={c} sceneStart={scene.start} i={i} />
           ))}

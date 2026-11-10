@@ -156,6 +156,7 @@ clipsuite character add dave-before art.png --part left    # --part takes half o
 clipsuite character add dave-after  art.png --part right
 clipsuite character add girl girl.png
 clipsuite background add bedroom my-bedroom.png              # optional: replace a built-in background
+clipsuite split collage.png                                  # cut a multi-panel image into separate panels
 clipsuite character list
 
 # 2. get an example episode script, edit it, render it
@@ -178,7 +179,8 @@ Directions under each scene (see `clipsuite/cartoon.py` for the full list):
 Colour words in the narration with `*yellow*` or `{red words}` (`blue`, `green`, `pink`,
 `purple`, `orange`). Motions: `enter`, `bounce`, `shake`, `glow` (transformation flash), `still`. Add `closeup` for art
 that's cut off at the legs (it sits at the bottom edge like a mid-shot).
-Background, cast and HUD carry over between scenes. Use characters you own: a series built on
+Background, cast and HUD carry over between scenes. Image backgrounds slowly pan and push in;
+`> show: none` gives a full-frame art scene with no characters on top. Use characters you own: a series built on
 someone else's character (for example a game character) risks copyright claims and demonetization.
 
 ## Editing in DaVinci Resolve

@@ -7,7 +7,7 @@ name = "clipsuite"
 version = "0.1.0"
 description = "Turn long videos into captioned vertical shorts: yt-dlp + Whisper + FFmpeg, with Remotion, HyperFrames, DaVinci Resolve, ChatCut and Wan2GP hand-offs"
 requires-python = ">=3.10"
-dependencies = ["yt-dlp", "pillow"]
+dependencies = ["yt-dlp", "pillow", "numpy"]
 
 [project.optional-dependencies]
 mac = ["mlx-whisper", "anthropic", "opencv-python-headless", "kokoro>=0.9.4", "soundfile"]

@@ -7,7 +7,7 @@ HUD, banners, sticky notes and a "comment one word" vote card.
 Script directions (on lines starting with ">" under a scene):
 
   > scene: bedroom                 background: built-in bedroom / gym / plain, or one you added
-  > show: dave-before left, girl right flip enter
+  > show: dave-before left, girl right flip enter      ("none" = nobody, e.g. a full-frame art scene)
                                    characters (names you added with `clipsuite character add`)
                                    position: left / center / right / 0.0-1.0
                                    size: tiny / small / big / huge;  flip;  closeup (mid-shot,
@@ -78,6 +78,8 @@ What should Dave fix first? Comment one word.
 # --------------------------------------------------------------------------- parsing
 
 def parse_cast(value: str) -> list[dict[str, Any]]:
+    if value.strip().lower() in ("none", "nobody", "empty"):
+        return []
     members = []
     for part in value.split(","):
         toks = part.split()
