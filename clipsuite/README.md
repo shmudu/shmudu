@@ -113,12 +113,15 @@ Faceless explainer-style shorts, free: you write the script, ClipSuite does the 
 
 1. **Voice** – [Kokoro](https://huggingface.co/hexgrad/Kokoro-82M), a free, natural-sounding voice
    that runs on your Mac (first use downloads ~330 MB). Falls back to macOS `say`.
-2. **Visuals** – free [Pexels](https://www.pexels.com/api/) stock video per scene, or an animated
-   headline card. Without a Pexels key every scene becomes a headline card.
+2. **Visuals** – for each scene, in this order: a clip from **your own footage folder** (matched by
+   file and folder names), free **[Pixabay](https://pixabay.com/api/docs/)** stock video, or
+   **Pexels** stock video (only if you already have a key; Pexels has paused new keys). If none of
+   those is set up or nothing matches, the scene becomes an animated headline card.
 3. **Captions & title** – the normal ClipSuite render (Whisper word timings, animated captions).
 
 ```bash
-clipsuite config pexels_api_key YOUR_KEY        # once; free key from pexels.com/api
+clipsuite config pixabay_api_key YOUR_KEY       # once; free key from pixabay.com/api/docs
+clipsuite config footage_dir ~/Movies/Broll     # optional: your own clips, e.g. money/piggy-bank.mp4
 clipsuite create "3 money habits"               # writes a script template and tells you where
 clipsuite create --script my-script.txt --voice am_michael --music ~/Music/lofi.mp3
 ```

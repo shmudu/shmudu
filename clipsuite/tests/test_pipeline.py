@@ -226,7 +226,7 @@ def test_create_builds_a_rendered_job(ws, tmp_path, monkeypatch):
     subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc2=size=720x1280:rate=25:duration=2",
                     "-pix_fmt", "yuv420p", str(stock)], check=True, capture_output=True)
     monkeypatch.setattr(create, "synthesize", _fake_tts)
-    monkeypatch.setattr(create, "get_setting", lambda name, default="": "fake-key")
+    monkeypatch.setattr(create, "get_setting", lambda name, default="": "fake-key" if name == "pexels_api_key" else "")
     monkeypatch.setattr(create, "pexels_pick",
                         lambda q, key, used: {"id": len(used), "link": "x", "credit": "Ann", "page": "p"})
     monkeypatch.setattr(create, "fetch", lambda url, cache: stock)
@@ -271,3 +271,50 @@ def test_pexels_pick_prefers_portrait(monkeypatch):
     pick = create.pexels_pick("coffee", "KEY", used)
     assert pick["link"] == "portrait-1080" and seen["auth"] == "KEY" and used == {1}
     assert create.pexels_pick("coffee", "KEY", used) is None  # no repeats
+
+
+class _Resp:
+    def __init__(self, data): self.data = json.dumps(data).encode()
+    def __enter__(self):
+        import io
+        return io.BytesIO(self.data)
+    def __exit__(self, *a): pass
+
+
+def test_pixabay_pick_prefers_portrait(monkeypatch):
+    from clipsuite import create
+
+    payload = {"hits": [
+        {"id": 1, "user": "Al", "pageURL": "p1", "videos": {
+            "large": {"url": "land-1920", "width": 1920, "height": 1080}}},
+        {"id": 2, "user": "Bea", "pageURL": "p2", "videos": {
+            "large": {"url": "port-1920", "width": 1080, "height": 1920},
+            "small": {"url": "port-640", "width": 360, "height": 640}}}]}
+    seen = {}
+    def fake_open(req, timeout=0):
+        seen["url"] = req.full_url
+        return _Resp(payload)
+    monkeypatch.setattr(create.urllib.request, "urlopen", fake_open)
+    used: set = set()
+    pick = create.pixabay_pick("coffee pour", "KEY", used)
+    assert pick["link"] == "port-1920" and pick["credit"] == "Bea" and "key=KEY" in seen["url"]
+    assert create.pixabay_pick("coffee pour", "KEY", used)["link"] == "land-1920"  # then the next one
+    assert create.pixabay_pick("coffee pour", "KEY", used) is None
+
+
+def test_local_footage_matches_names(tmp_path, monkeypatch):
+    from clipsuite import create
+
+    for rel in ("money/piggy-bank.mp4", "city/night-street.mov", "misc/random.mp4", "notes.txt"):
+        f = tmp_path / rel
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_bytes(b"x")
+    monkeypatch.setattr(create, "get_setting", lambda name, default="": "")
+    used: set = set()
+    assert create.local_pick("piggy bank coins", tmp_path, used)["path"].name == "piggy-bank.mp4"
+    assert create.stock_pick("city night", used, str(tmp_path))["path"].name == "night-street.mov"
+    assert create.has_stock_source(str(tmp_path)) and not create.has_stock_source()
+    # unused footage first, then repeat the best match; give up if nothing matches at all
+    assert create.local_pick("piggy bank", tmp_path, used)["path"].name == "random.mp4"
+    assert create.local_pick("piggy bank", tmp_path, used)["path"].name == "piggy-bank.mp4"
+    assert create.local_pick("volcano", tmp_path, used) is None

@@ -31,6 +31,11 @@ def _job(name: str) -> Path:
     return d
 
 
+def _stock_ok() -> bool:
+    from .create import has_stock_source
+    return has_stock_source()
+
+
 def _tts() -> list[str]:
     from .create import tts_backends
     return tts_backends()
@@ -60,8 +65,9 @@ def cmd_doctor(_a: argparse.Namespace) -> None:
         ("node/npx (Remotion, HyperFrames)", bool(shutil.which("npx")), "brew install node"),
         ("anthropic SDK (Claude clip picker)", bool(importlib.util.find_spec("anthropic")), "pip install anthropic"),
         ("voice for `create` (Kokoro / say)", bool(_tts()), "pip install 'kokoro>=0.9.4' soundfile"),
-        ("Pexels key for `create` stock footage", bool(get_setting("pexels_api_key")),
-         "free key at pexels.com/api, then: clipsuite config pexels_api_key KEY"),
+        ("stock footage for `create`", _stock_ok(),
+         "clipsuite config footage_dir ~/Movies/Broll  and/or  clipsuite config pixabay_api_key KEY "
+         "(free key: pixabay.com/api/docs)"),
         ("opencv (face-tracked crop)", _opencv_ok(),
          "pip uninstall -y opencv-python opencv-python-headless opencv-contrib-python && "
          "pip install --force-reinstall opencv-python-headless"),
@@ -142,7 +148,7 @@ def cmd_create(a: argparse.Namespace) -> None:
     from . import create
     from .util import get_setting
 
-    kw = {"tts": a.tts, "music": a.music, "preset": a.preset}
+    kw = {"tts": a.tts, "music": a.music, "preset": a.preset, "footage_dir": a.footage or ""}
     if a.rebuild:
         create.rebuild(_job(a.rebuild), voice=a.voice, **kw)
         return
@@ -166,8 +172,14 @@ def cmd_config(a: argparse.Namespace) -> None:
 
     if a.value is None:
         print(f"{a.name} = {'(set)' if get_setting(a.name) else '(not set)'}   [{CONFIG_FILE}]")
-    else:
-        print("Saved to", set_setting(a.name, a.value))
+        return
+    value = a.value
+    if a.name == "footage_dir":
+        folder = Path(value).expanduser().resolve()
+        if not folder.is_dir():
+            sys.exit(f"No such folder: {folder}")
+        value = str(folder)
+    print("Saved to", set_setting(a.name, value))
 
 
 def cmd_serve(a: argparse.Namespace) -> None:
@@ -279,13 +291,14 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--voice", default="", help="Kokoro voice, e.g. af_heart, am_michael, bf_emma (or a macOS voice)")
     p.add_argument("--tts", default="auto", choices=["auto", "kokoro", "say", "espeak"])
     p.add_argument("--music", help="background music file (auto-ducked under the voice)")
+    p.add_argument("--footage", help="folder of your own b-roll clips to use (matched by file/folder names)")
     p.add_argument("--seconds", type=int, default=75, help="target length when Claude writes the script")
     p.add_argument("--style", default="", help="tone notes for Claude, e.g. 'calm, educational'")
     p.add_argument("--preset", choices=["bold", "clean", "boxed", "minimal"], default="bold")
     p.set_defaults(fn=cmd_create)
 
-    p = sub.add_parser("config", help="save a setting, e.g. `clipsuite config pexels_api_key KEY`")
-    p.add_argument("name", choices=["pexels_api_key"])
+    p = sub.add_parser("config", help="save a setting, e.g. `clipsuite config pixabay_api_key KEY`")
+    p.add_argument("name", choices=["pixabay_api_key", "footage_dir", "pexels_api_key"])
     p.add_argument("value", nargs="?")
     p.set_defaults(fn=cmd_config)
 

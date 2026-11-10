@@ -60,7 +60,8 @@ Manual installs (apps, not scriptable):
   * ChatCut: https://chatcut.io (web app or desktop app)
   * Wan2GP: needs an NVIDIA GPU for real speed. On a Mac, try it via Pinokio (https://pinokio.co,
     experimental Apple Silicon support) or run it on a cloud GPU. See README "Wan2GP".
-Prompt-to-video (clipsuite create): get a free Pexels key at https://www.pexels.com/api/ then run
-  clipsuite config pexels_api_key YOUR_KEY
+Prompt-to-video (clipsuite create): get a free Pixabay key at https://pixabay.com/api/docs/ then run
+  clipsuite config pixabay_api_key YOUR_KEY
+  (and/or point it at your own clips: clipsuite config footage_dir ~/Movies/Broll)
 Optional: export ANTHROPIC_API_KEY=... to let Claude pick clips and write scripts for you.
 EOF

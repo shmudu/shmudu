@@ -1,7 +1,7 @@
 """`clipsuite create`: make a faceless vertical video from a script (free) or a topic (Claude).
 
   script ──► scenes (plan.json) ──► voiceover per scene (Kokoro / macOS say / espeak-ng)
-                                 └► visual per scene (Pexels stock video, or an animated title card)
+                                 └► visual per scene (your footage folder, Pixabay or Pexels stock, or a title card)
          ──► stitched source.mp4 ──► Whisper word timings ──► normal ClipSuite render (captions, title)
 
 The result is an ordinary ClipSuite job, so it shows up in the phone editor and
@@ -255,6 +255,88 @@ def pexels_pick(query: str, api_key: str, used: set[int]) -> dict[str, Any] | No
     return None
 
 
+def pixabay_pick(query: str, api_key: str, used: set) -> dict[str, Any] | None:
+    """Best video for `query` on Pixabay (free key: pixabay.com/api/docs). Portrait clips first."""
+    url = "https://pixabay.com/api/videos/?" + urllib.parse.urlencode(
+        {"key": api_key, "q": query[:100], "per_page": 30, "safesearch": "true"})
+    req = urllib.request.Request(url, headers={"User-Agent": "ClipSuite/0.1"})
+    with urllib.request.urlopen(req, timeout=30) as r:
+        data = json.load(r)
+    options = []
+    for hit in data.get("hits", []):
+        vid = f"pixabay:{hit['id']}"
+        if vid in used:
+            continue
+        files = [f for f in (hit.get("videos") or {}).values() if f.get("url") and f.get("width")]
+        if not files:
+            continue
+        files.sort(key=lambda f: abs(max(f["width"], f["height"]) - 1920))
+        best = files[0]
+        options.append((best["height"] < best["width"], vid, best, hit))
+    if not options:
+        return None
+    options.sort(key=lambda o: o[0])  # portrait (False) before landscape (True)
+    _, vid, best, hit = options[0]
+    used.add(vid)
+    return {"id": vid, "link": best["url"], "credit": hit.get("user", ""), "page": hit.get("pageURL", ""),
+            "provider": "Pixabay"}
+
+
+VIDEO_EXTS = {".mp4", ".mov", ".m4v", ".webm", ".mkv"}
+
+
+def local_pick(query: str, folder: Path, used: set) -> dict[str, Any] | None:
+    """Pick from your own footage folder: file and folder names are matched against the search words.
+
+    Name files like `coffee-pour.mp4` or sort them into folders like `city/`, `money/`.
+    """
+    files = sorted(p for p in folder.expanduser().rglob("*") if p.suffix.lower() in VIDEO_EXTS)
+    if not files:
+        return None
+    words = {w for w in re.findall(r"[a-z]{3,}", query.lower()) if w not in STOP}
+
+    def score(p: Path) -> int:
+        name = set(re.findall(r"[a-z]{3,}", str(p.relative_to(folder.expanduser())).lower()))
+        return len(words & name)
+
+    fresh = sorted((p for p in files if f"local:{p}" not in used), key=lambda p: (-score(p), str(p)))
+    if fresh:
+        best = fresh[0]
+    else:  # everything used once: repeat the best match, if any is relevant
+        best = max(files, key=score)
+        if score(best) == 0:
+            return None  # let the next source (or a title card) handle it
+    used.add(f"local:{best}")
+    return {"id": f"local:{best.name}", "path": best, "credit": "", "page": "", "provider": "your footage"}
+
+
+def stock_pick(query: str, used: set, footage_dir: str = "") -> dict[str, Any] | None:
+    """Try your footage folder, then Pixabay, then Pexels (whichever are set up)."""
+    sources = []
+    folder = footage_dir or get_setting("footage_dir")
+    if folder and Path(folder).expanduser().is_dir():
+        sources.append(("your footage", lambda: local_pick(query, Path(folder), used)))
+    if key := get_setting("pixabay_api_key"):
+        sources.append(("Pixabay", lambda: pixabay_pick(query, key, used)))
+    if key2 := get_setting("pexels_api_key"):
+        sources.append(("Pexels", lambda: dict(pexels_pick(query, key2, used) or {}, provider="Pexels") or None))
+    for name, fn in sources:
+        try:
+            pick = fn()
+        except Exception as e:
+            print(f"  ! {name} search failed ({e})", flush=True)
+            continue
+        if pick and (pick.get("link") or pick.get("path")):
+            return pick
+    return None
+
+
+def has_stock_source(footage_dir: str = "") -> bool:
+    folder = footage_dir or get_setting("footage_dir")
+    return bool((folder and Path(folder).expanduser().is_dir()) or get_setting("pixabay_api_key")
+                or get_setting("pexels_api_key"))
+
+
 def fetch(url: str, cache: Path) -> Path:
     cache.mkdir(parents=True, exist_ok=True)
     dest = cache / (hashlib.sha1(url.encode()).hexdigest()[:16] + ".mp4")
@@ -290,7 +372,7 @@ def text_segment(headline: str, dur: float, out: Path, accent: str, idx: int) ->
 # --------------------------------------------------------------------------- build
 
 def build(plan: dict[str, Any], job: Path | None = None, voice: str = "", tts: str = "auto",
-          music: str | None = None, preset: str = "bold", accent: str = "#FFE500") -> Path:
+          music: str | None = None, preset: str = "bold", accent: str = "#FFE500", footage_dir: str = "") -> Path:
     require("ffmpeg")
     if job is None:
         job = new_job(plan["title"])
@@ -298,14 +380,14 @@ def build(plan: dict[str, Any], job: Path | None = None, voice: str = "", tts: s
                                                 "created": time.strftime("%Y-%m-%d %H:%M:%S")}
     write_json(job / "job.json", {**meta, "status": "creating", "error": None})
     try:
-        return _build(plan, job, voice, tts, music, preset, accent)
+        return _build(plan, job, voice, tts, music, preset, accent, footage_dir)
     except Exception as e:
         set_status(job, "error", error=str(e))
         raise
 
 
 def _build(plan: dict[str, Any], job: Path, voice: str, tts: str, music: str | None, preset: str,
-           accent: str) -> Path:
+           accent: str, footage_dir: str = "") -> Path:
     work = job / "create"
     work.mkdir(parents=True, exist_ok=True)
     plan["voice"] = voice or plan.get("voice", "")
@@ -313,8 +395,7 @@ def _build(plan: dict[str, Any], job: Path, voice: str, tts: str, music: str | N
         plan["music"] = str(Path(music).expanduser().resolve())
     write_json(job / "plan.json", plan)
 
-    api_key = get_setting("pexels_api_key")
-    used: set[int] = set()
+    used: set = set()
     credits, seg_files, voice_files, transcript_segs = [], [], [], []
     t = 0.0
     for i, scene in enumerate(plan["scenes"]):
@@ -332,17 +413,16 @@ def _build(plan: dict[str, Any], job: Path, voice: str, tts: str, music: str | N
         kind = scene.get("kind", "stock")
         if kind == "stock":
             pick = None
-            if api_key:
-                try:
-                    pick = pexels_pick(scene.get("visual") or keywords(scene["text"]), api_key, used)
-                except Exception as e:
-                    print(f"  ! Pexels search failed ({e}); using a title card", flush=True)
+            if has_stock_source(footage_dir):
+                pick = stock_pick(scene.get("visual") or keywords(scene["text"]), used, footage_dir)
             elif i == 0:
-                print("  (no Pexels key: using title cards. Get a free key at pexels.com/api, then run "
-                      "`clipsuite config pexels_api_key YOUR_KEY`)", flush=True)
+                print("  (no footage source: using title cards. Free options: `clipsuite config footage_dir "
+                      "~/Movies/Broll` or a Pixabay key via `clipsuite config pixabay_api_key KEY`)", flush=True)
             if pick:
-                stock_segment(fetch(pick["link"], WORKSPACE / "_stock"), dur, seg)
-                credits.append(f"Scene {n}: video by {pick['credit']} on Pexels {pick['page']}")
+                src_file = pick.get("path") or fetch(pick["link"], WORKSPACE / "_stock")
+                stock_segment(Path(src_file), dur, seg)
+                if pick.get("credit"):
+                    credits.append(f"Scene {n}: video by {pick['credit']} on {pick['provider']} {pick['page']}")
                 scene["stock_id"] = pick["id"]
             else:
                 kind = "text"
