@@ -33,7 +33,7 @@ source .venv/bin/activate
 clipsuite doctor
 ```
 
-The script installs Homebrew (if missing), `ffmpeg`, `yt-dlp`, `node`, Python 3.12, `mlx-whisper`,
+The script installs Homebrew (if missing), FFmpeg with caption support (from the `homebrew-ffmpeg` tap, since Homebrew's standard `ffmpeg` no longer includes libass), `yt-dlp`, `node`, Python 3.12, `mlx-whisper`,
 `anthropic`, OpenCV (for face tracking) and the Remotion packages, and runs `hyperframes doctor`.
 
 Install these apps yourself:

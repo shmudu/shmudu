@@ -27,6 +27,20 @@ def require(tool: str, hint: str = "") -> str:
     return path
 
 
+FFMPEG_LIBASS_FIX = (
+    "Your FFmpeg was built without libass, which burned-in captions need. On a Mac:\n"
+    "  brew uninstall --ignore-dependencies ffmpeg\n"
+    "  brew tap homebrew-ffmpeg/ffmpeg && brew install homebrew-ffmpeg/ffmpeg/ffmpeg"
+)
+
+
+def ffmpeg_has_filter(name: str) -> bool:
+    if not shutil.which("ffmpeg"):
+        return False
+    out = subprocess.run(["ffmpeg", "-hide_banner", "-filters"], capture_output=True, text=True).stdout
+    return any(line.split()[1:2] == [name] for line in out.splitlines() if line.strip())
+
+
 def run(cmd: Iterable[str], cwd: Path | None = None, quiet: bool = False) -> subprocess.CompletedProcess:
     cmd = [str(c) for c in cmd]
     if not quiet:

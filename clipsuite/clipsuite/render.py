@@ -13,7 +13,8 @@ from typing import Any
 
 from . import captions
 from .transcribe import all_words
-from .util import probe, read_json, require, run, write_json
+from .util import (FFMPEG_LIBASS_FIX, ToolMissing, ffmpeg_has_filter, probe, read_json, require, run,
+                   write_json)
 
 OUT_W, OUT_H, OUT_FPS = 1080, 1920, 30
 
@@ -148,6 +149,10 @@ def render_all(job: Path, only: list[str] | None = None, defaults: dict[str, Any
     clips = read_json(job / "clips.json")
     if not clips:
         raise RuntimeError("No clips.json. Run: clipsuite pick <job>")
+    wants_captions = (defaults or {}).get("captions", True) and any(
+        c.get("style", {}).get("captions", True) for c in clips)
+    if wants_captions and not ffmpeg_has_filter("ass"):
+        raise ToolMissing(FFMPEG_LIBASS_FIX)
     for c in clips:
         if only and c["id"] not in only:
             continue

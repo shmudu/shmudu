@@ -17,9 +17,16 @@ if ! command -v brew >/dev/null; then
   eval "$(/opt/homebrew/bin/brew shellenv 2>/dev/null || /usr/local/bin/brew shellenv)"
 fi
 
-# 2. Command-line tools: FFmpeg (with libass for captions), yt-dlp, Node 22+, Python
-say "Installing ffmpeg, yt-dlp, node, python"
-brew install ffmpeg yt-dlp node python@3.12
+# 2. Command-line tools: yt-dlp, Node 22+, Python, and FFmpeg WITH libass (burned-in captions).
+#    Homebrew's standard ffmpeg formula dropped libass, so use the official FFmpeg tap instead.
+say "Installing yt-dlp, node, python"
+brew install yt-dlp node python@3.12
+if ! ffmpeg -hide_banner -filters 2>/dev/null | awk '{print $2}' | grep -qx ass; then
+  say "Installing FFmpeg with caption support (homebrew-ffmpeg tap; may build for a while)"
+  brew uninstall --ignore-dependencies ffmpeg 2>/dev/null || true
+  brew tap homebrew-ffmpeg/ffmpeg
+  brew install homebrew-ffmpeg/ffmpeg/ffmpeg
+fi
 
 # 3. Python environment + Whisper (mlx-whisper runs on the Apple GPU)
 say "Creating Python venv in .venv"

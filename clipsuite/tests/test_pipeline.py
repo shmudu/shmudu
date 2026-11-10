@@ -163,3 +163,21 @@ def test_broken_opencv_falls_back(monkeypatch, tmp_path, capsys):
     assert render.detect_face_x(tmp_path / "x.mp4", 0, 5) is None
     assert "face tracking unavailable" in capsys.readouterr().out
     assert cli._opencv_ok() is False
+
+
+def test_render_stops_clearly_without_libass(ws, monkeypatch):
+    from clipsuite import render, util
+
+    job = util.job_dir("j1")
+    util.write_json(job / "clips.json", [{"id": "c", "start": 0, "end": 5}])
+    monkeypatch.setattr(render, "ffmpeg_has_filter", lambda name: False)
+    with pytest.raises(util.ToolMissing, match="homebrew-ffmpeg"):
+        render.render_all(job)
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg"), reason="ffmpeg not installed")
+def test_ffmpeg_filter_detection():
+    from clipsuite.util import ffmpeg_has_filter
+
+    assert ffmpeg_has_filter("scale")
+    assert not ffmpeg_has_filter("definitely_not_a_filter")

@@ -14,7 +14,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from .util import WORKSPACE, ToolMissing, job_dir, list_jobs, read_json
+from .util import WORKSPACE, ToolMissing, ffmpeg_has_filter, job_dir, list_jobs, read_json
 
 
 def _job(name: str) -> Path:
@@ -44,7 +44,10 @@ def cmd_doctor(_a: argparse.Namespace) -> None:
     from .transcribe import available_backends
 
     rows = [
-        ("ffmpeg", bool(shutil.which("ffmpeg")), "brew install ffmpeg"),
+        ("ffmpeg", bool(shutil.which("ffmpeg")), "brew install homebrew-ffmpeg/ffmpeg/ffmpeg"),
+        ("ffmpeg captions (libass)", ffmpeg_has_filter("ass"),
+         "brew uninstall --ignore-dependencies ffmpeg && brew tap homebrew-ffmpeg/ffmpeg && "
+         "brew install homebrew-ffmpeg/ffmpeg/ffmpeg"),
         ("yt-dlp", bool(shutil.which("yt-dlp")), "brew install yt-dlp"),
         ("whisper backend", bool(available_backends()), "pip install mlx-whisper  (Apple Silicon)"),
         ("node/npx (Remotion, HyperFrames)", bool(shutil.which("npx")), "brew install node"),
