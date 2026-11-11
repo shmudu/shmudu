@@ -30,6 +30,8 @@
   video { width:100%; aspect-ratio:9/16; background:#000; border-radius:10px; }
   label { display:block; font-size:12px; color:var(--muted); margin:10px 0 4px; }
   details summary { cursor:pointer; color:var(--muted); margin-top:8px; }
+  .card.kept { border-color: #46d160; box-shadow: 0 0 0 1px #46d160 inset; }
+  .card.skipped { opacity: .45; }
   .err { color:var(--bad); white-space:pre-wrap; font-size:12px; }
   a { color:var(--accent); }
 </style>
@@ -62,10 +64,12 @@ async function home() {
       <label>Paste a YouTube / TikTok / podcast link</label>
       <input id="url" placeholder="https://..." inputmode="url" autocomplete="off">
       <div class="row" style="margin-top:8px">
-        <select id="count">${[3,5,8,10].map(n => `<option ${n==5?"selected":""}>${n}</option>`).join("")}</select>
+        <select id="count">${[3,5,8,10].map(n => `<option value="${n}" ${n==10?"selected":""}>${n} clips</option>`).join("")}</select>
         <select id="len"><option value="15-35">15–35s</option><option value="20-60" selected>20–60s</option><option value="45-90">45–90s</option></select>
         <select id="preset"><option>bold</option><option>clean</option><option>boxed</option><option>minimal</option></select>
       </div>
+      <label style="display:flex;gap:8px;align-items:center;color:var(--text);font-size:14px">
+        <input type="checkbox" id="review" checked style="width:auto"> Let me choose (quick previews first, then render only the ones I keep)</label>
       <label>What should the clips focus on? (optional)</label>
       <input id="guidance" placeholder="e.g. funniest moments, money tips">
       <div class="row" style="margin-top:10px"><button id="go">Make shorts</button>
@@ -110,6 +114,7 @@ Habit one: pay yourself first.
   };
   const opts = () => { const [a, b] = document.getElementById("len").value.split("-");
     return { count: +document.getElementById("count").value, min_len: +a, max_len: +b,
+             review: document.getElementById("review").checked,
              guidance: document.getElementById("guidance").value, style: { preset: document.getElementById("preset").value } }; };
   document.getElementById("go").onclick = async () => {
     const msg = document.getElementById("msg");
@@ -121,7 +126,7 @@ Habit one: pay yourself first.
   document.getElementById("file").onchange = async e => {
     const f = e.target.files[0]; if (!f) return;
     const msg = document.getElementById("msg"); msg.textContent = `Uploading ${f.name}…`;
-    const o = opts(); const p = new URLSearchParams({ name: f.name, count: o.count, min_len: o.min_len, max_len: o.max_len, guidance: o.guidance });
+    const o = opts(); const p = new URLSearchParams({ name: f.name, count: o.count, min_len: o.min_len, max_len: o.max_len, guidance: o.guidance, review: o.review ? "1" : "" });
     try { const r = await api(`/api/upload?${p}`, { method: "POST", body: f }); openJob(r.job); }
     catch (err) { msg.textContent = err.message; }
   };
@@ -144,11 +149,20 @@ async function openJob(id) {
   let last = "";
   const draw = async () => {
     const { job, clips, presets } = await api(`/api/jobs/${id}`);
-    const sig = JSON.stringify([job.status, clips.map(c => [c.id, c.render?.final, c.start, c.end, c.title, c.style])]);
+    const sig = JSON.stringify([job.status, clips.map(c => [c.id, c.render?.final, c.render?.preview, c.decision, c.start, c.end, c.title, c.style])]);
+    const kept = clips.filter(c => c.decision === "keep").length;
+    const choosing = ["review", "previewing"].includes(job.status) || clips.some(c => c.decision);
+    const readyDone = job.status === "done" && kept > 0;
     if (sig === last) return; last = sig;
     app.innerHTML = `
       <div class="card"><b>${esc(job.title)}</b> <span class="pill ${esc(job.status)}">${esc(job.status)}</span>
         ${job.error ? `<div class="err">${esc(job.error)}</div>` : ""}
+        ${choosing ? `<div style="margin-top:10px">${job.status === "previewing" ? "Making previews… watch them as they appear." :
+            `Watch each preview and tap <b>Keep</b> or <b>Skip</b>.`} <b>Kept ${kept} of ${clips.length}.</b></div>
+          <button id="finish" style="margin-top:8px;width:100%" ${kept && !["rendering", "exporting", "previewing"].includes(job.status) ? "" : "disabled"}>
+            ${["rendering", "exporting"].includes(job.status) ? "Rendering kept clips…" : `Render ${kept} kept clip${kept === 1 ? "" : "s"} in full quality`}</button>` : ""}
+        ${readyDone ? `<div class="muted" style="margin-top:8px">Ready to post: <a href="${fileUrl(id, "exports/ready/POSTING.txt")}">posting sheet</a>
+            · files in workspace/${esc(id)}/exports/ready on the Mac</div>` : ""}
         <div class="row" style="margin-top:10px;flex-wrap:wrap">
           <button class="ghost" data-exp="resolve">DaVinci (FCPXML)</button>
           <button class="ghost" data-exp="chatcut">ChatCut bundle</button>
@@ -163,6 +177,13 @@ async function openJob(id) {
       try { const r = await api(`/api/jobs/${id}/export/${b.dataset.exp}`, { method: "POST" });
         document.getElementById("expMsg").innerHTML = `Saved <a href="${fileUrl(id, r.file, 1)}">${esc(r.file)}</a> (also on the Mac in workspace/${esc(id)})`;
       } catch (e) { document.getElementById("expMsg").textContent = e.message; } });
+    const fin = document.getElementById("finish");
+    if (fin) fin.onclick = async () => {
+      try { await api(`/api/jobs/${id}/finish`, { method: "POST" }); last = ""; draw(); } catch (e) { alert(e.message); } };
+    app.querySelectorAll("[data-decide]").forEach(b => b.onclick = async () => {
+      const [cid, decision] = b.dataset.decide.split("|");
+      await api(`/api/jobs/${id}/clips/${cid}/decision`, { method: "POST", body: JSON.stringify({ decision }) });
+      last = ""; draw(); });
     document.getElementById("add").onclick = async () => {
       await api(`/api/jobs/${id}/clips`, { method: "POST", body: JSON.stringify({ start: +nS.value, end: +nE.value, title: nT.value }) }); last = ""; draw(); };
     app.querySelectorAll("[data-save]").forEach(b => b.onclick = () => saveClip(id, b.dataset.save).then(() => { last = ""; draw(); }));
@@ -178,9 +199,15 @@ async function openJob(id) {
 function clipCard(job, c, presets) {
   const st = c.style || {}; const ready = !!c.render?.final && job.status !== "rendering";
   const id = esc(c.id);
-  return `<div class="card">
-    ${c.render?.final ? `<video controls playsinline preload="metadata" poster="${fileUrl(job.id, `clips/${c.id}/thumb.jpg`)}"
-        src="${fileUrl(job.id, `clips/${c.id}/final.mp4`)}"></video>` : `<div class="muted">Rendering…</div>`}
+  const src = c.render?.final ? "final.mp4" : c.render?.preview ? "preview.mp4" : "";
+  const d = c.decision || "";
+  return `<div class="card ${d === "keep" ? "kept" : d === "skip" ? "skipped" : ""}">
+    ${src ? `<video controls playsinline preload="metadata" poster="${fileUrl(job.id, `clips/${c.id}/thumb.jpg`)}"
+        src="${fileUrl(job.id, `clips/${c.id}/${src}`)}"></video>` : `<div class="muted">Rendering…</div>`}
+    ${src === "preview.mp4" ? `<div class="muted">Quick preview (low quality); the kept version renders sharp.</div>` : ""}
+    ${c.render?.preview || d ? `<div class="row" style="margin-top:8px">
+      <button class="${d === "keep" ? "" : "ghost"}" data-decide="${id}|${d === "keep" ? "pending" : "keep"}">✓ Keep</button>
+      <button class="${d === "skip" ? "" : "ghost"}" data-decide="${id}|${d === "skip" ? "pending" : "skip"}">✕ Skip</button></div>` : ""}
     <div style="margin-top:8px"><b>${esc(c.title)}</b></div>
     <div class="muted">${fmt(c.start)} → ${fmt(c.end)} · ${(c.end - c.start).toFixed(1)}s · score ${esc(c.score)}</div>
     <div class="muted">${esc(c.reason)}</div>

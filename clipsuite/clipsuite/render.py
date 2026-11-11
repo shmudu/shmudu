@@ -73,6 +73,51 @@ def _detect_face_x(video: Path, start: float, end: float, samples: int) -> float
     return xs[len(xs) // 2]
 
 
+def _framing(src: Path, info: dict[str, Any], style: dict[str, Any], start: float, end: float) -> tuple[str, float]:
+    mode = style.get("reframe", "auto")
+    crop_x = float(style.get("crop_x", 0.5))
+    if mode in ("auto", "face"):
+        fx = detect_face_x(src, start, end)
+        if fx is not None:
+            mode, crop_x = "crop", fx
+        else:
+            mode = "crop" if mode == "face" else ("blur" if info["width"] / info["height"] > 1.9 else "crop")
+    return mode, crop_x
+
+
+def render_preview(job: Path, clip: dict[str, Any], defaults: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Quick, small preview (540x960, captions included) so you can decide whether to keep a clip.
+    Takes a few seconds per clip instead of the full two-pass render."""
+    require("ffmpeg", "Install FFmpeg (brew install ffmpeg).")
+    style = {**(defaults or {}), **clip.get("style", {})}
+    src = job / "source.mp4"
+    info = read_json(job / "job.json", {}).get("media") or probe(src)
+    out = job / "clips" / clip["id"]
+    out.mkdir(parents=True, exist_ok=True)
+    start, end = float(clip["start"]), float(clip["end"])
+    mode, crop_x = _framing(src, info, style, start, end)
+    transcript = read_json(job / "transcript.json")
+    words = captions.clip_words(all_words(transcript), start, end) if transcript else []
+    write_json(out / "words.json", words)
+    title = clip.get("title", "") if style.get("show_title", True) else ""
+    ass, _ = captions.write(words, out, style, OUT_W, OUT_H, title=title)  # libass scales it to 540x960
+    vf = reframe_filter(mode, info["width"], info["height"], crop_x) + f",fps={OUT_FPS},scale=540:960"
+    if style.get("captions", True) and words and ffmpeg_has_filter("ass"):
+        vf += f",ass={ass.name}"
+    cmd = ["ffmpeg", "-y", "-ss", f"{start:.3f}", "-i", src, "-t", f"{end - start:.3f}",
+           "-filter_complex", f"[0:v]{vf},format=yuv420p[v]", "-map", "[v]"]
+    if info.get("has_audio", True):
+        cmd += ["-map", "0:a:0?", "-c:a", "aac", "-b:a", "96k"]
+    cmd += ["-c:v", "libx264", "-preset", "veryfast", "-crf", "30", "-movflags", "+faststart", "preview.mp4"]
+    run(cmd, cwd=out, quiet=True)
+    run(["ffmpeg", "-y", "-ss", f"{min(1.0, (end - start) / 2):.2f}", "-i", "preview.mp4", "-frames:v", "1",
+         "-vf", "scale=360:-2", "thumb.jpg"], cwd=out, quiet=True)
+    clip.setdefault("render", {}).update({"preview": str(out / "preview.mp4"), "reframe": mode,
+                                          "crop_x": round(crop_x, 3), "duration": round(end - start, 3)})
+    clip["render"].pop("final", None)  # an edit invalidates an earlier full render
+    return clip
+
+
 def render_clip(job: Path, clip: dict[str, Any], defaults: dict[str, Any] | None = None) -> dict[str, Any]:
     require("ffmpeg", "Install FFmpeg (brew install ffmpeg).")
     defaults = defaults or {}
@@ -84,14 +129,7 @@ def render_clip(job: Path, clip: dict[str, Any], defaults: dict[str, Any] | None
     start, end = float(clip["start"]), float(clip["end"])
     dur = end - start
 
-    mode = style.get("reframe", "auto")
-    crop_x = float(style.get("crop_x", 0.5))
-    if mode in ("auto", "face"):
-        fx = detect_face_x(src, start, end)
-        if fx is not None:
-            mode, crop_x = "crop", fx
-        else:
-            mode = "crop" if mode == "face" else ("blur" if info["width"] / info["height"] > 1.9 else "crop")
+    mode, crop_x = _framing(src, info, style, start, end)
     clip.setdefault("render", {}).update({"reframe": mode, "crop_x": round(crop_x, 3)})
 
     # 1) raw vertical cut
@@ -145,18 +183,37 @@ def render_clip(job: Path, clip: dict[str, Any], defaults: dict[str, Any] | None
     return clip
 
 
-def render_all(job: Path, only: list[str] | None = None, defaults: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+def preview_all(job: Path, defaults: dict[str, Any] | None = None, only: list[str] | None = None) -> list[dict[str, Any]]:
     clips = read_json(job / "clips.json")
     if not clips:
         raise RuntimeError("No clips.json. Run: clipsuite pick <job>")
+    for n, c in enumerate(clips, 1):
+        if only and c["id"] not in only:
+            continue
+        c.setdefault("decision", "pending")
+        print(f"Preview {n}/{len(clips)}: {c['id']} ({c['end'] - c['start']:.1f}s)", flush=True)
+        render_preview(job, c, defaults)
+        write_json(job / "clips.json", clips)  # save as we go so the phone shows each one
+    return clips
+
+
+def render_all(job: Path, only: list[str] | None = None, defaults: dict[str, Any] | None = None,
+               kept_only: bool = False) -> list[dict[str, Any]]:
+    clips = read_json(job / "clips.json")
+    if not clips:
+        raise RuntimeError("No clips.json. Run: clipsuite pick <job>")
+    if kept_only:
+        only = [c["id"] for c in clips if c.get("decision") == "keep"]
+        if not only:
+            raise RuntimeError("No clips are marked Keep yet.")
     wants_captions = (defaults or {}).get("captions", True) and any(
         c.get("style", {}).get("captions", True) for c in clips)
     if wants_captions and not ffmpeg_has_filter("ass"):
         raise ToolMissing(FFMPEG_LIBASS_FIX)
     for c in clips:
-        if only and c["id"] not in only:
+        if only is not None and c["id"] not in only:
             continue
         print(f"Rendering {c['id']} ({c['end'] - c['start']:.1f}s)...", flush=True)
         render_clip(job, c, defaults)
-    write_json(job / "clips.json", clips)
+        write_json(job / "clips.json", clips)
     return clips

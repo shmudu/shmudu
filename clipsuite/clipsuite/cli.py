@@ -92,7 +92,36 @@ def cmd_auto(a: argparse.Namespace) -> None:
     job = pipeline.ingest(a.source)
     print(f"Job: {job.name}")
     pipeline.process(job, vars(a) | {"style": {"preset": a.preset, "reframe": a.reframe}})
+    if a.review:
+        from . import review
+        print("\n".join(["", *review.summary(job)]))
+        print(f"\nWatch the previews (clipsuite serve, or {job / 'clips'}), then:"
+              f"\n  clipsuite keep {job.name} 1 3 5\n  clipsuite finish {job.name}")
+        return
     _summary(job)
+
+
+def cmd_review(a: argparse.Namespace) -> None:
+    from . import review
+
+    job = _job(a.job)
+    if a.cmd in ("keep", "skip"):
+        try:
+            review.decide(job, a.clips, a.cmd)
+        except ValueError as e:
+            sys.exit(str(e))
+    print("\n".join(review.summary(job)))
+    if a.cmd == "review":
+        print(f"\nPreviews: {job / 'clips'}/<clip>/preview.mp4   (or open the phone editor: clipsuite serve)"
+              f"\nMark them:  clipsuite keep {a.job} 1 3 5   /   clipsuite skip {a.job} 2"
+              f"\nThen:       clipsuite finish {a.job}")
+
+
+def cmd_finish(a: argparse.Namespace) -> None:
+    from . import review
+
+    ready = review.finish(_job(a.job), {"preset": a.preset, "reframe": a.reframe})
+    print(f"\nReady to post: {ready}\n(open it with: open '{ready}')")
 
 
 def cmd_download(a: argparse.Namespace) -> None:
@@ -332,12 +361,28 @@ def main(argv: list[str] | None = None) -> None:
 
     p = sub.add_parser("auto", help="full pipeline from a URL or file")
     p.add_argument("source")
+    p.add_argument("--review", action="store_true",
+                   help="make quick previews and let you choose which clips to render (use with --count 10)")
     p.add_argument("--backend", default="auto", choices=["auto", "mlx", "faster", "openai"])
     p.add_argument("--model")
     p.add_argument("--language")
     _pick_args(p)
     _style_args(p)
     p.set_defaults(fn=cmd_auto)
+
+    p = sub.add_parser("review", help="list a job's clips with your Keep/Skip choices")
+    p.add_argument("job")
+    p.set_defaults(fn=cmd_review, clips=[])
+    for verb in ("keep", "skip"):
+        p = sub.add_parser(verb, help=f"mark clips as {verb} (numbers from `clipsuite review`)")
+        p.add_argument("job")
+        p.add_argument("clips", nargs="+")
+        p.set_defaults(fn=cmd_review)
+
+    p = sub.add_parser("finish", help="render the kept clips and collect them in exports/ready")
+    p.add_argument("job")
+    _style_args(p)
+    p.set_defaults(fn=cmd_finish)
 
     p = sub.add_parser("download", help="yt-dlp a URL (or import a local file) into a new job")
     p.add_argument("source")

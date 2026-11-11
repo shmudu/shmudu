@@ -532,3 +532,42 @@ for j in jobs:
     log.unlink()
     voice.voice_lines(lines, work)          # unchanged lines are reused, nothing re-voiced
     assert not log.exists()
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg"), reason="ffmpeg not installed")
+def test_review_flow_previews_then_renders_only_kept(ws, tmp_path):
+    from clipsuite import download, highlights, render, review, util
+
+    importlib.reload(review)
+    src = tmp_path / "talk.mp4"
+    dur = len(SENTENCES) * 4
+    subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", f"testsrc2=size=1280x720:rate=30:duration={dur}",
+                    "-f", "lavfi", "-i", f"sine=duration={dur}", "-shortest", "-c:v", "libx264",
+                    "-pix_fmt", "yuv420p", "-c:a", "aac", str(src)], check=True, capture_output=True)
+    job = download.import_file(src)
+    util.write_json(job / "transcript.json", make_transcript())
+    clips = highlights.pick(job, picker="heuristic", count=10, min_len=4, max_len=8)
+    assert len(clips) >= 3
+
+    render.preview_all(job, defaults={"reframe": "crop"})
+    clips = util.read_json(job / "clips.json")
+    for c in clips:
+        p = job / "clips" / c["id"] / "preview.mp4"
+        assert p.exists() and util.probe(p)["height"] == 960 and c["decision"] == "pending"
+        assert not (job / "clips" / c["id"] / "final.mp4").exists()
+
+    review.decide(job, ["1", "3"], "keep")
+    review.decide(job, ["2"], "skip")
+    with pytest.raises(ValueError):
+        review.decide(job, ["99"], "keep")
+    assert "[KEEP]" in review.summary(job)[0] and "[skip]" in review.summary(job)[1]
+
+    ready = review.finish(job, {"reframe": "crop"})
+    clips = util.read_json(job / "clips.json")
+    rendered = [c["id"] for c in clips if (job / "clips" / c["id"] / "final.mp4").exists()]
+    assert rendered == [clips[0]["id"], clips[2]["id"]]
+    files = sorted(p.name for p in ready.glob("*.mp4"))
+    assert len(files) == 2 and files[0].startswith("01-") and files[1].startswith("02-")
+    assert util.probe(ready / files[0])["height"] == 1920
+    assert "Caption idea" in (ready / "POSTING.txt").read_text()
+    assert util.read_json(job / "job.json")["status"] == "done"

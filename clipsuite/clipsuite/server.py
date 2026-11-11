@@ -202,11 +202,34 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json({"error": "Clip must be at least 1 second"}, 400)
                 write_json(d / "clips.json", clips)
 
+                full = bool((clip.get("render") or {}).get("final"))
+
                 def rerender():
-                    pipeline.set_status(d, "rendering")
-                    render.render_all(d, only=[clip_id])
-                    pipeline.set_status(d, "done")
+                    status = read_json(d / "job.json", {}).get("status")
+                    if full:  # already rendered: redo the full-quality version
+                        pipeline.set_status(d, "rendering")
+                        render.render_all(d, only=[clip_id])
+                        pipeline.set_status(d, "done" if status != "review" else "review")
+                    else:  # still choosing: just refresh the quick preview
+                        render.preview_all(d, only=[clip_id])
                 _bg(job_id, rerender)
+                return self._json({"ok": True})
+
+            if m := re.fullmatch(r"/api/jobs/([\w.-]+)/clips/([\w.-]+)/decision", path):
+                from . import review
+                body = self._body()
+                decision = body.get("decision")
+                if decision not in ("keep", "skip", "pending"):
+                    return self._json({"error": "decision must be keep, skip or pending"}, 400)
+                review.decide(job_dir(m.group(1)), [m.group(2)], decision)
+                return self._json({"ok": True})
+
+            if m := re.fullmatch(r"/api/jobs/([\w.-]+)/finish", path):
+                from . import review
+                d = job_dir(m.group(1))
+                if not any(c.get("decision") == "keep" for c in read_json(d / "clips.json", [])):
+                    return self._json({"error": "Mark at least one clip Keep first."}, 400)
+                _bg(m.group(1), review.finish, d)
                 return self._json({"ok": True})
 
             if m := re.fullmatch(r"/api/jobs/([\w.-]+)/clips", path):  # add a manual clip
@@ -220,7 +243,13 @@ class Handler(BaseHTTPRequestHandler):
                         "style": {}, "broll_prompts": [], "picker": "manual"}
                 clips.append(clip)
                 write_json(d / "clips.json", clips)
-                _bg(job_id, render.render_all, d, [clip["id"]])
+                status = read_json(d / "job.json", {}).get("status")
+                if status in ("review", "previewing"):
+                    clip["decision"] = "pending"
+                    write_json(d / "clips.json", clips)
+                    _bg(job_id, render.preview_all, d, None, [clip["id"]])
+                else:
+                    _bg(job_id, render.render_all, d, [clip["id"]])
                 return self._json({"ok": True, "clip": clip})
 
             if m := re.fullmatch(r"/api/jobs/([\w.-]+)/export/(resolve|chatcut|wan2gp)", path):

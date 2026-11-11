@@ -96,6 +96,19 @@ clips/<id>/raw.mp4 final.mp4 captions.ass captions.srt words.json thumb.jpg
 exports/resolve.fcpxml  exports/chatcut.zip  exports/wan2gp/prompts.txt
 ```
 
+### Pick the best, then choose (clipping campaigns)
+
+```bash
+clipsuite auto "https://youtube.com/watch?v=..." --count 10 --review   # up to 10 quick previews
+clipsuite review latest            # list them with your choices
+clipsuite keep latest 1 4 7        # or tap Keep / Skip in the phone editor
+clipsuite skip latest 2
+clipsuite finish latest            # full-quality render of the kept clips only
+```
+
+Kept clips land, numbered, in `workspace/<job>/exports/ready/` with `POSTING.txt` (title and a
+caption idea per clip). In the phone editor, "Let me choose" is on by default.
+
 ### Per-clip style options (`clips.json` → `"style"`)
 
 | key | values |

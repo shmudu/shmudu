@@ -34,6 +34,11 @@ def process(job: Path, opts: dict[str, Any] | None = None, log: Callable[[str], 
                                 min_len=float(opts.get("min_len", 20)), max_len=float(opts.get("max_len", 60)),
                                 guidance=opts.get("guidance", ""))
         log(f"Picked {len(clips)} clips")
+        if str(opts.get("review", "")).lower() in ("1", "true", "yes", "on"):
+            set_status(job, "previewing")
+            render.preview_all(job, defaults=opts.get("style"))
+            set_status(job, "review", error=None)  # waiting for you to Keep/Skip, then finish
+            return job
         set_status(job, "rendering")
         render.render_all(job, defaults=opts.get("style"))
         set_status(job, "exporting")
