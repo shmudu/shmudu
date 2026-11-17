@@ -11,7 +11,7 @@ import importlib.util
 from pathlib import Path
 from typing import Any
 
-from . import captions
+from . import captions, tracking
 from .transcribe import all_words
 from .util import (FFMPEG_LIBASS_FIX, ToolMissing, ffmpeg_has_filter, probe, read_json, require, run,
                    write_json)
@@ -19,8 +19,13 @@ from .util import (FFMPEG_LIBASS_FIX, ToolMissing, ffmpeg_has_filter, probe, rea
 OUT_W, OUT_H, OUT_FPS = 1080, 1920, 30
 
 
-def reframe_filter(mode: str, src_w: int, src_h: int, crop_x: float = 0.5) -> str:
+def reframe_filter(mode: str, src_w: int, src_h: int, crop_x: float = 0.5,
+                   track: dict[str, Any] | None = None) -> str:
     """FFmpeg filter that turns any input into OUT_W x OUT_H."""
+    if mode == "speaker" and track:
+        return tracking.speaker_filter(track, src_w, src_h, OUT_W, OUT_H)
+    if mode == "split" and track:
+        return tracking.split_filter(track, src_w, src_h, OUT_W, OUT_H)
     if mode == "blur":
         return (f"split[a][b];[a]scale={OUT_W}:{OUT_H}:force_original_aspect_ratio=increase,"
                 f"crop={OUT_W}:{OUT_H},boxblur=30:5,eq=brightness=-0.08[bg];"
@@ -73,16 +78,38 @@ def _detect_face_x(video: Path, start: float, end: float, samples: int) -> float
     return xs[len(xs) // 2]
 
 
-def _framing(src: Path, info: dict[str, Any], style: dict[str, Any], start: float, end: float) -> tuple[str, float]:
+def _framing(src: Path, info: dict[str, Any], style: dict[str, Any], start: float,
+             end: float) -> tuple[str, float, dict[str, Any] | None]:
+    """Decide how to frame a clip: (mode, crop_x, speaker track).
+
+    auto     two or more people -> follow the speaker; one person -> crop on their face;
+             nobody found -> centre crop (or blurred background for very wide video)
+    speaker  follow whoever is talking      split   two people stacked top/bottom
+    face     crop on the main face          crop / blur / fit   manual
+    """
     mode = style.get("reframe", "auto")
     crop_x = float(style.get("crop_x", 0.5))
-    if mode in ("auto", "face"):
-        fx = detect_face_x(src, start, end)
-        if fx is not None:
-            mode, crop_x = "crop", fx
-        else:
-            mode = "crop" if mode == "face" else ("blur" if info["width"] / info["height"] > 1.9 else "crop")
-    return mode, crop_x
+    if mode in ("auto", "speaker", "split", "face"):
+        try:
+            track = tracking.plan(src, start, end)
+        except Exception as e:  # tracking is a bonus; never fail a render over it
+            print(f"  ! speaker tracking failed ({e}); using a standard crop", flush=True)
+            track = None
+        if track:
+            seats = track["seats"]
+            if mode == "split" and len(seats) >= 2:
+                return "split", crop_x, track
+            if mode in ("auto", "speaker") and len(seats) >= 2:
+                return "speaker", crop_x, track
+            main = seats[0] if len(seats) == 1 else max(
+                seats, key=lambda x: sum(sh["end"] - sh["start"] for sh in track["shots"]
+                                         if seats[sh["seat"]] == x))
+            return "crop", main, None
+        if mode in ("speaker", "split", "face"):
+            print("  (no faces found: using a centre crop)", flush=True)
+            return "crop", 0.5, None
+        return ("blur" if info["width"] / info["height"] > 1.9 else "crop"), crop_x, None
+    return mode, crop_x, None
 
 
 def render_preview(job: Path, clip: dict[str, Any], defaults: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -95,13 +122,13 @@ def render_preview(job: Path, clip: dict[str, Any], defaults: dict[str, Any] | N
     out = job / "clips" / clip["id"]
     out.mkdir(parents=True, exist_ok=True)
     start, end = float(clip["start"]), float(clip["end"])
-    mode, crop_x = _framing(src, info, style, start, end)
+    mode, crop_x, track = _framing(src, info, style, start, end)
     transcript = read_json(job / "transcript.json")
     words = captions.clip_words(all_words(transcript), start, end) if transcript else []
     write_json(out / "words.json", words)
     title = clip.get("title", "") if style.get("show_title", True) else ""
     ass, _ = captions.write(words, out, style, OUT_W, OUT_H, title=title)  # libass scales it to 540x960
-    vf = reframe_filter(mode, info["width"], info["height"], crop_x) + f",fps={OUT_FPS},scale=540:960"
+    vf = reframe_filter(mode, info["width"], info["height"], crop_x, track) + f",fps={OUT_FPS},scale=540:960"
     if style.get("captions", True) and words and ffmpeg_has_filter("ass"):
         vf += f",ass={ass.name}"
     cmd = ["ffmpeg", "-y", "-ss", f"{start:.3f}", "-i", src, "-t", f"{end - start:.3f}",
@@ -113,7 +140,8 @@ def render_preview(job: Path, clip: dict[str, Any], defaults: dict[str, Any] | N
     run(["ffmpeg", "-y", "-ss", f"{min(1.0, (end - start) / 2):.2f}", "-i", "preview.mp4", "-frames:v", "1",
          "-vf", "scale=360:-2", "thumb.jpg"], cwd=out, quiet=True)
     clip.setdefault("render", {}).update({"preview": str(out / "preview.mp4"), "reframe": mode,
-                                          "crop_x": round(crop_x, 3), "duration": round(end - start, 3)})
+                                          "crop_x": round(crop_x, 3), "duration": round(end - start, 3),
+                                          "track": track})
     clip["render"].pop("final", None)  # an edit invalidates an earlier full render
     return clip
 
@@ -129,12 +157,12 @@ def render_clip(job: Path, clip: dict[str, Any], defaults: dict[str, Any] | None
     start, end = float(clip["start"]), float(clip["end"])
     dur = end - start
 
-    mode, crop_x = _framing(src, info, style, start, end)
-    clip.setdefault("render", {}).update({"reframe": mode, "crop_x": round(crop_x, 3)})
+    mode, crop_x, track = _framing(src, info, style, start, end)
+    clip.setdefault("render", {}).update({"reframe": mode, "crop_x": round(crop_x, 3), "track": track})
 
     # 1) raw vertical cut
     raw = out / "raw.mp4"
-    vf = reframe_filter(mode, info["width"], info["height"], crop_x) + f",fps={OUT_FPS},format=yuv420p"
+    vf = reframe_filter(mode, info["width"], info["height"], crop_x, track) + f",fps={OUT_FPS},format=yuv420p"
     af = "loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000"
     cmd = ["ffmpeg", "-y", "-ss", f"{start:.3f}", "-i", src, "-t", f"{dur:.3f}",
            "-filter_complex", f"[0:v]{vf}[v]", "-map", "[v]"]

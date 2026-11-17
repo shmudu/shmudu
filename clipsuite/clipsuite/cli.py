@@ -76,7 +76,7 @@ def cmd_doctor(_a: argparse.Namespace) -> None:
          "(free key: pixabay.com/api/docs)"),
         ("opencv (face-tracked crop)", _opencv_ok(),
          "pip uninstall -y opencv-python opencv-python-headless opencv-contrib-python && "
-         "pip install --force-reinstall opencv-python-headless"),
+         "pip install 'opencv-python-headless<5'   (OpenCV 5 dropped the face detector)"),
         ("DaVinci Resolve", Path("/Applications/DaVinci Resolve/DaVinci Resolve.app").exists(),
          "download from blackmagicdesign.com/products/davinciresolve"),
     ]
@@ -320,6 +320,11 @@ def cmd_config(a: argparse.Namespace) -> None:
     print("Saved to", set_setting(a.name, value))
 
 
+def cmd_app(a: argparse.Namespace) -> None:
+    from . import desktop
+    desktop.main(a.port)
+
+
 def cmd_serve(a: argparse.Namespace) -> None:
     from . import server
     server.serve(a.host, a.port, open_access=a.no_token)
@@ -349,7 +354,8 @@ def _pick_args(p: argparse.ArgumentParser) -> None:
 
 def _style_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--preset", choices=["bold", "clean", "boxed", "minimal"], default="bold")
-    p.add_argument("--reframe", choices=["auto", "face", "crop", "blur", "fit"], default="auto")
+    p.add_argument("--reframe", choices=["auto", "speaker", "split", "face", "crop", "blur", "fit"], default="auto",
+                   help="auto: follow the speaker when 2+ people, else crop on the face")
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -482,6 +488,10 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("name", choices=["pixabay_api_key", "footage_dir", "pexels_api_key"])
     p.add_argument("value", nargs="?")
     p.set_defaults(fn=cmd_config)
+
+    p = sub.add_parser("app", help="open ClipSuite in its own Mac window (phone link still works)")
+    p.add_argument("--port", type=int, default=8765)
+    p.set_defaults(fn=cmd_app)
 
     p = sub.add_parser("serve", help="web editor you can open from your phone")
     p.add_argument("--host", default="0.0.0.0")

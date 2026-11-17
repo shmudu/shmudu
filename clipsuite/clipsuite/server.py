@@ -116,6 +116,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"error": "bad token"}, 401)
         if path == "/api/jobs":
             return self._json(list_jobs())
+        if path == "/api/info":
+            return self._json({"phone": getattr(Handler, "phone_url", "")})
         if path == "/api/cartoon-example":
             from . import cartoon
             return self._json({"script": cartoon.TEMPLATE.replace("{title}", "Day 1 of 30")})
@@ -296,14 +298,31 @@ def _lan_ip() -> str:
         return "127.0.0.1"
 
 
-def serve(host: str = "0.0.0.0", port: int = 8765, open_access: bool = False) -> None:
+def start(host: str = "0.0.0.0", port: int = 8765, open_access: bool = False) -> tuple[ThreadingHTTPServer, str, str]:
+    """Create the server (not yet serving). Returns (server, local_url, phone_url).
+    Tries the next ports if `port` is taken."""
     global TOKEN
     TOKEN = "" if open_access else secrets.token_urlsafe(8)
     WORKSPACE.mkdir(parents=True, exist_ok=True)
-    httpd = ThreadingHTTPServer((host, port), Handler)
+    for p in range(port, port + 20):
+        try:
+            httpd = ThreadingHTTPServer((host, p), Handler)
+            break
+        except OSError:
+            continue
+    else:
+        raise RuntimeError(f"Ports {port}-{port + 19} are all in use")
+    actual = httpd.server_address[1]
     suffix = f"/?t={TOKEN}" if TOKEN else "/"
-    print(f"ClipSuite editor running.\n  On this Mac:  http://localhost:{port}{suffix}\n"
-          f"  On your phone (same Wi-Fi): http://{_lan_ip()}:{port}{suffix}\nCtrl+C to stop.", flush=True)
+    phone = f"http://{_lan_ip()}:{actual}{suffix}" if host in ("0.0.0.0", "") else ""
+    Handler.phone_url = phone
+    return httpd, f"http://127.0.0.1:{actual}{suffix}", phone
+
+
+def serve(host: str = "0.0.0.0", port: int = 8765, open_access: bool = False) -> None:
+    httpd, local, phone = start(host, port, open_access)
+    print(f"ClipSuite editor running.\n  On this Mac:  {local}\n"
+          f"  On your phone (same Wi-Fi): {phone}\nCtrl+C to stop.", flush=True)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

@@ -13,6 +13,10 @@
            display:flex; align-items:center; gap:10px; }
   header h1 { font-size:18px; margin:0; flex:1; }
   main { padding:16px; max-width:900px; margin:0 auto; }
+  @media (min-width: 1000px) { main { max-width: 1240px; } .grid { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); } }
+  #dropHint { position:fixed; inset:0; z-index:50; display:flex; align-items:center; justify-content:center;
+              background:rgba(14,14,16,.88); border:4px dashed var(--accent); color:var(--accent); font-size:28px; font-weight:800; }
+  #dropHint[hidden] { display:none; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px; margin-bottom:14px; }
   input, select, textarea, button { font:inherit; color:inherit; }
   input, select, textarea { width:100%; background:#0f0f12; border:1px solid var(--line); border-radius:10px; padding:11px 12px; }
@@ -37,7 +41,9 @@
 </style>
 </head>
 <body>
-<header><h1>✂️ ClipSuite</h1><button class="ghost" id="homeBtn" hidden>All jobs</button></header>
+<header><h1>✂️ ClipSuite</h1><button class="ghost" id="phoneBtn">📱 Phone</button><button class="ghost" id="homeBtn" hidden>All jobs</button></header>
+<div id="phoneBox" class="card" hidden style="margin:12px 16px"></div>
+<div id="dropHint" hidden>Drop a video to make shorts</div>
 <main id="app"></main>
 <script>
 const qs = new URLSearchParams(location.search);
@@ -220,7 +226,7 @@ function clipCard(job, c, presets) {
       <label>End (s)</label><div class="row"><button class="ghost" data-nudge="${id}|end|-1">−1</button>
         <input id="end-${id}" value="${c.end}" inputmode="decimal"><button class="ghost" data-nudge="${id}|end|1">+1</button></div>
       <label>Caption style</label><select id="preset-${id}">${presets.map(p => `<option ${p === (st.preset || "bold") ? "selected" : ""}>${p}</option>`).join("")}</select>
-      <label>Framing</label><select id="reframe-${id}">${["auto","face","crop","blur","fit"].map(p => `<option ${p === (st.reframe || "auto") ? "selected" : ""}>${p}</option>`).join("")}</select>
+      <label>Framing (auto follows the speaker · split stacks two people)</label><select id="reframe-${id}">${["auto","speaker","split","face","crop","blur","fit"].map(p => `<option ${p === (st.reframe || "auto") ? "selected" : ""}>${p}</option>`).join("")}</select>
       <label>Crop position (0 = left, 1 = right; used by "crop")</label><input id="cropx-${id}" type="range" min="0" max="1" step="0.05" value="${st.crop_x ?? c.render?.crop_x ?? 0.5}">
       <label>Caption height (0.5 = middle, 0.85 = low)</label><input id="pos-${id}" type="range" min="0.4" max="0.9" step="0.05" value="${st.position ?? 0.7}">
       <div class="row" style="margin-top:10px"><button data-save="${id}">Save & re-render</button><button class="ghost" data-del="${id}">Remove</button></div>
@@ -235,6 +241,29 @@ async function saveClip(jobId, cid) {
 }
 
 homeBtn.onclick = home;
+document.getElementById("phoneBtn").onclick = async () => {
+  const box = document.getElementById("phoneBox");
+  if (!box.hidden) { box.hidden = true; return; }
+  try { const r = await api("/api/info");
+    box.innerHTML = r.phone ? `On your phone (same Wi-Fi), open:<br><a href="${esc(r.phone)}">${esc(r.phone)}</a>
+      <div class="muted">Tip: copy this into a note or message to yourself, then tap it on the phone.</div>`
+      : "Phone access is off for this session."; box.hidden = false;
+  } catch (e) { box.textContent = e.message; box.hidden = false; }
+};
+// Mac app / desktop: drop a video anywhere to start
+let dragDepth = 0;
+const hint = document.getElementById("dropHint");
+window.addEventListener("dragenter", e => { if ([...e.dataTransfer.types].includes("Files")) { dragDepth++; hint.hidden = false; } });
+window.addEventListener("dragleave", () => { if (--dragDepth <= 0) { dragDepth = 0; hint.hidden = true; } });
+window.addEventListener("dragover", e => e.preventDefault());
+window.addEventListener("drop", async e => {
+  e.preventDefault(); dragDepth = 0; hint.hidden = true;
+  const f = [...e.dataTransfer.files].find(f => f.type.startsWith("video/") || /\.(mp4|mov|m4v|mkv|webm)$/i.test(f.name));
+  if (!f) return alert("That isn't a video file.");
+  if (!document.getElementById("file")) await home();   // dropped while viewing a job: go back first
+  const dt = new DataTransfer(); dt.items.add(f);
+  const input = document.getElementById("file"); input.files = dt.files; input.onchange({ target: input });
+});
 home();
 </script>
 </body>

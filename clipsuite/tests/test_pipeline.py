@@ -571,3 +571,66 @@ def test_review_flow_previews_then_renders_only_kept(ws, tmp_path):
     assert util.probe(ready / files[0])["height"] == 1920
     assert "Caption idea" in (ready / "POSTING.txt").read_text()
     assert util.read_json(job / "job.json")["status"] == "done"
+
+
+def _fake_samples(duration=12.0, switch=6.0, blips=(2.0, 9.0)):
+    """Two people at x=0.25 and x=0.75; left talks until `switch`, then right. Short noise blips."""
+    out = []
+    for i in range(int(duration * 4)):
+        t = i / 4
+        left_talks = t < switch
+        blip = any(abs(t - b) < 0.2 for b in blips)  # a nod or cough from the other person
+        out.append({"t": t, "faces": [
+            {"x": 0.25 + (0.01 if i % 2 else 0), "w": 0.1, "motion": 9.0 if (left_talks != blip) else 1.0},
+            {"x": 0.75, "w": 0.1, "motion": 9.0 if (not left_talks) != blip else 1.0}]})
+    return out
+
+
+def test_speaker_shots_follow_the_talker_without_flicker():
+    from clipsuite import tracking
+
+    samples = _fake_samples()
+    seats = tracking.find_seats(samples)
+    assert len(seats) == 2 and abs(seats[0] - 0.25) < 0.02 and abs(seats[1] - 0.75) < 0.02
+    shots = tracking.speaker_shots(samples, seats, 12.0)
+    assert [s["seat"] for s in shots] == [0, 1]          # blips ignored
+    assert shots[0]["start"] == 0 and shots[-1]["end"] == 12.0
+    assert 5.0 <= shots[0]["end"] <= 7.0                 # cut near the real switch
+    # one person only -> single static shot
+    solo = [{"t": s["t"], "faces": s["faces"][:1]} for s in samples]
+    assert tracking.speaker_shots(solo, tracking.find_seats(solo), 12.0) == [{"start": 0.0, "end": 12.0, "seat": 0}]
+    assert tracking.find_seats([{"t": 0, "faces": []}]) == []
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg"), reason="ffmpeg not installed")
+def test_speaker_and_split_filters_render(tmp_path):
+    from PIL import Image
+    from clipsuite import render, tracking
+
+    src = tmp_path / "two.mp4"  # left half red, right half blue, 1920x1080, 8 s
+    subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", "color=c=red:size=960x1080:duration=8:rate=30",
+                    "-f", "lavfi", "-i", "color=c=blue:size=960x1080:duration=8:rate=30",
+                    "-filter_complex", "[0:v][1:v]hstack,format=yuv420p", str(src)], check=True, capture_output=True)
+    track = {"seats": [0.25, 0.75], "shots": [{"start": 0, "end": 2.0, "seat": 0}, {"start": 2.0, "end": 4.0, "seat": 1}]}
+
+    def frame_rgb(video, t):
+        png = tmp_path / f"f{t}.png"
+        subprocess.run(["ffmpeg", "-y", "-ss", str(t), "-i", str(video), "-frames:v", "1", str(png)],
+                       check=True, capture_output=True)
+        return Image.open(png).convert("RGB")
+
+    out = tmp_path / "speaker.mp4"  # cut from 3s in, like a real clip: t must restart at 0
+    vf = render.reframe_filter("speaker", 1920, 1080, 0.5, track)
+    subprocess.run(["ffmpeg", "-y", "-ss", "3", "-i", str(src), "-t", "4", "-filter_complex", f"[0:v]{vf}[v]",
+                    "-map", "[v]", str(out)], check=True, capture_output=True)
+    first, later = frame_rgb(out, 1.0), frame_rgb(out, 3.0)
+    assert first.size == (1080, 1920)
+    assert first.getpixel((540, 960))[0] > 200 and later.getpixel((540, 960))[2] > 200   # red, then blue
+
+    out2 = tmp_path / "split.mp4"
+    vf = render.reframe_filter("split", 1920, 1080, 0.5, track)
+    subprocess.run(["ffmpeg", "-y", "-i", str(src), "-t", "1", "-filter_complex", f"[0:v]{vf}[v]",
+                    "-map", "[v]", str(out2)], check=True, capture_output=True)
+    img = frame_rgb(out2, 0.5)
+    assert img.size == (1080, 1920)
+    assert img.getpixel((540, 400))[0] > 200 and img.getpixel((540, 1500))[2] > 200      # red top, blue bottom

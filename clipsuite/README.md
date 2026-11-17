@@ -50,6 +50,17 @@ The first transcription downloads the Whisper model (~1.5 GB).
 
 ## Use it
 
+### As a Mac app
+
+```bash
+bash setup/make_mac_app.sh      # once: builds ClipSuite.app in ~/Applications
+```
+
+Open **ClipSuite** from Spotlight or the Dock. It's the same editor in its own window: drag a video
+onto it to start, and the 📱 Phone button shows the link for your phone. The Mac stays awake while
+it's open; closing the window stops ClipSuite. To give the app API keys, put lines like
+`export ANTHROPIC_API_KEY=...` in `~/.config/clipsuite/env`. (`clipsuite app` opens it from Terminal.)
+
 ### From your phone
 
 ```bash
@@ -114,7 +125,7 @@ caption idea per clip). In the phone editor, "Let me choose" is on by default.
 | key | values |
 |---|---|
 | `preset` | `bold` (yellow highlight), `clean`, `boxed`, `minimal` |
-| `reframe` | `auto`, `face`, `crop`, `blur`, `fit` |
+| `reframe` | `auto` (follows the speaker when 2+ people), `speaker`, `split` (two people stacked), `face`, `crop`, `blur`, `fit` |
 | `crop_x` | 0–1 horizontal crop centre (for `crop`) |
 | `position` | 0.4–0.9 caption height |
 | `words_per_line`, `uppercase`, `font`, `size` | caption overrides |
